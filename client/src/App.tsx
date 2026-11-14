@@ -5,12 +5,31 @@ import { Home } from './components/Home';
 import { Lobby } from './components/Lobby';
 import { Table } from './components/Table';
 
+/** How long the socket may be disconnected before the "connection lost" banner appears. Opening
+ *  the app, waking a phone or a brief network blip usually reconnects well within this. */
+const CONN_BANNER_DELAY_MS = 4000;
+
+/** True once `connected` has been false for `delayMs`; false again as soon as it reconnects. */
+function useDelayedDisconnect(connected: boolean, delayMs: number): boolean {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    if (connected) {
+      setShow(false);
+      return;
+    }
+    const t = setTimeout(() => setShow(true), delayMs);
+    return () => clearTimeout(t);
+  }, [connected, delayMs]);
+  return show;
+}
+
 export function App() {
   const [view, setView] = useState<RoomView | null>(null);
   const [connected, setConnected] = useState(socket.connected);
   const [resuming, setResuming] = useState(() => !!loadSession());
   const [notice, setNotice] = useState<string | null>(null);
   const offsetRef = useRef(0);
+  const showConnBanner = useDelayedDisconnect(connected, CONN_BANNER_DELAY_MS);
 
   const tryResume = useCallback(async () => {
     const session = loadSession();
@@ -83,7 +102,7 @@ export function App() {
 
   return (
     <>
-      {!connected && <div className="conn-banner">Connection lost — reconnecting…</div>}
+      {showConnBanner && <div className="conn-banner">Connection lost — reconnecting…</div>}
       {body}
     </>
   );
