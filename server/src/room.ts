@@ -12,11 +12,12 @@ import {
   IllegalMoveError,
   MAX_CHAT_LENGTH,
   MAX_NAME_LENGTH,
-  MAX_PLAYERS,
+  DEFAULT_TABLE_SIZE,
   MIN_PLAYERS,
   nextRound,
   SHIFT_TOKEN_OPTIONS,
   STARTING_CHIP_OPTIONS,
+  TABLE_SIZE_OPTIONS,
   timeoutActions,
   toGameView,
   TURN_TIMER_OPTIONS,
@@ -83,6 +84,8 @@ export class Room {
     turnSeconds: DEFAULT_TURN_SECONDS,
     shiftTokens: DEFAULT_SHIFT_TOKENS,
     isPublic: false,
+    maxPlayers: DEFAULT_TABLE_SIZE,
+    cheats: false,
   };
   game: GameState | null = null;
   chat: ChatMessage[] = [];
@@ -127,7 +130,7 @@ export class Room {
 
   addHuman(rawName: string): Seat {
     if (this.status !== 'lobby') throw new RoomError('That game has already started');
-    if (this.seats.length >= MAX_PLAYERS) throw new RoomError('That room is full');
+    if (this.seats.length >= this.settings.maxPlayers) throw new RoomError('That room is full');
     const name = this.uniqueName(cleanName(rawName));
     const seat: Seat = {
       id: this.newSeatId(),
@@ -147,7 +150,7 @@ export class Room {
   addBot(actorId: string | null, level: BotLevel): Seat {
     this.requireHost(actorId);
     if (this.status !== 'lobby') throw new RoomError('Bots can only be added in the lobby');
-    if (this.seats.length >= MAX_PLAYERS) throw new RoomError('All seats are taken');
+    if (this.seats.length >= this.settings.maxPlayers) throw new RoomError('All seats are taken');
     if (level !== 'easy' && level !== 'normal') throw new RoomError('Unknown bot difficulty');
     const used = new Set(this.seats.map((s) => s.name));
     const free = BOT_NAMES.filter((n) => !used.has(n));
@@ -242,6 +245,15 @@ export class Room {
       if (!(SHIFT_TOKEN_OPTIONS as readonly number[]).includes(patch.shiftTokens)) throw new RoomError('Invalid shift token count');
       this.settings.shiftTokens = patch.shiftTokens;
     }
+    if (patch.maxPlayers !== undefined) {
+      if (!(TABLE_SIZE_OPTIONS as readonly number[]).includes(patch.maxPlayers)) throw new RoomError('Invalid table size');
+      if (patch.maxPlayers < this.seats.length) throw new RoomError(`${this.seats.length} players are already seated — remove someone first`);
+      this.settings.maxPlayers = patch.maxPlayers;
+    }
+    if (patch.cheats !== undefined) {
+      if (typeof patch.cheats !== 'boolean') throw new RoomError('Invalid cheats setting');
+      this.settings.cheats = patch.cheats;
+    }
     if (patch.isPublic !== undefined) {
       if (typeof patch.isPublic !== 'boolean') throw new RoomError('Invalid visibility');
       if (patch.isPublic !== this.settings.isPublic) {
@@ -284,7 +296,7 @@ export class Room {
     if (this.seats.length < MIN_PLAYERS) throw new RoomError(`At least ${MIN_PLAYERS} players are needed`);
     this.game = createGame(
       this.seats.map((s) => ({ id: s.id, name: s.name })),
-      { startingChips: this.settings.startingChips, shiftTokens: this.settings.shiftTokens },
+      { startingChips: this.settings.startingChips, shiftTokens: this.settings.shiftTokens, cheats: this.settings.cheats },
       this.rng,
       { firstDealerIndex: Math.floor(this.rng() * this.seats.length) },
     );
@@ -525,9 +537,9 @@ export class Room {
       humans: this.seats.length - bots,
       bots,
       seatsTaken: this.seats.length,
-      maxSeats: MAX_PLAYERS,
+      maxSeats: this.settings.maxPlayers,
       settings: { ...this.settings },
-      joinable: this.status === 'lobby' && this.seats.length < MAX_PLAYERS,
+      joinable: this.status === 'lobby' && this.seats.length < this.settings.maxPlayers,
     };
   }
 

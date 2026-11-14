@@ -2062,3 +2062,103 @@ h3 {
   color: var(--brass);
   border-color: rgba(214, 173, 92, 0.5);
 }
+
+/* ---------- crowded tables (5–8 players): opponents in a grid across the top ---------- */
+.felt.many {
+  grid-template-areas:
+    'top top top'
+    'center center center'
+    'bottom bottom bottom';
+}
+.opp-grid {
+  grid-area: top;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  align-items: start;
+  padding: 10px 24px 0;
+}
+.seat.pos-grid {
+  width: 100%;
+  padding: 6px;
+  gap: 4px;
+}
+.seat.pos-grid .seat-name {
+  font-size: 0.85rem;
+}
+@media (max-width: 640px) {
+  .opp-grid {
+    grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+    --cw-sm: 26px;
+    gap: 4px;
+    padding: 6px 6px 0;
+  }
+  .seat.pos-grid .chips {
+    font-size: 0.75rem;
+    gap: 6px;
+  }
+}
+
+/* ---------- cheats ---------- */
+.cheat-tray {
+  border-color: rgba(255, 107, 107, 0.35);
+}
+.cheat-btn.selected {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.badge.caught {
+  color: var(--danger);
+  border-color: rgba(255, 107, 107, 0.5);
+}
+.card-slot.peeked {
+  position: relative;
+}
+.card-slot.peeked .card,
+.card-slot.peeked .flipper {
+  outline: 2px dashed rgba(255, 107, 107, 0.7);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.card-slot.peeked::after {
+  content: '👁';
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  font-size: 0.8rem;
+  line-height: 1;
+  background: var(--bg2);
+  border: 1px solid rgba(255, 107, 107, 0.6);
+  border-radius: 999px;
+  padding: 2px 3px;
+}
+.die-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.nudge {
+  display: flex;
+  gap: 4px;
+}
+.cheat-hint {
+  margin: 0 0 6px;
+  color: #ffb3b3;
+}
+.log-cheat {
+  color: var(--danger);
+  font-weight: 600;
+}
+@media (max-width: 640px) {
+  .seat.pos-grid {
+    padding: 4px 2px;
+  }
+  .seat.pos-grid .seat-name {
+    font-size: 0.72rem;
+  }
+  .seat.pos-grid .hand-label,
+  .seat.pos-grid .chip-stack.invested .small {
+    font-size: 0.65rem;
+  }
+}

@@ -54,7 +54,7 @@ describe('setup', () => {
 
   it('rejects bad player counts', () => {
     expect(() => createGame(players(1), { startingChips: 8 }, rng())).toThrow(IllegalMoveError);
-    expect(() => createGame(players(5), { startingChips: 8 }, rng())).toThrow(IllegalMoveError);
+    expect(() => createGame(players(9), { startingChips: 8 }, rng())).toThrow(IllegalMoveError);
   });
 });
 
@@ -331,7 +331,7 @@ describe('views hide private information', () => {
     const other = s.players.find((p) => p.id !== cur)!.id;
     s = applyAction(s, cur, { type: 'draw', source: 'sandDeck' }, rng());
     expect(toGameView(s, cur).pendingDraw?.card).toEqual(s.pendingDraw!.card);
-    expect(toGameView(s, other).pendingDraw).toEqual({ playerId: cur, source: 'sandDeck', card: null });
+    expect(toGameView(s, other).pendingDraw).toEqual({ playerId: cur, source: 'sandDeck', card: null, extra: null });
     expect(JSON.stringify(toGameView(s, other))).not.toContain(`"${s.pendingDraw!.card.id}"`);
   });
 

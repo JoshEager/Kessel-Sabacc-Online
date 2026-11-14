@@ -15,11 +15,11 @@ const FAST: RoomTiming = {
 function cardCount(g: GameState): number {
   let n = g.decks.sand.length + g.decks.blood.length + g.discards.sand.length + g.discards.blood.length;
   for (const p of g.players) if (p.hand) n += 2;
-  if (g.pendingDraw) n += 1;
+  if (g.pendingDraw) n += g.pendingDraw.extra ? 2 : 1;
   return n;
 }
 
-function playBotGame(seed: number, shiftTokens = 0): Promise<{ room: Room; rounds: number; checks: number }> {
+function playBotGame(seed: number, shiftTokens = 0, bots = 4): Promise<{ room: Room; rounds: number; checks: number }> {
   return new Promise((resolve, reject) => {
     let checks = 0;
     let lastTotal = Infinity;
@@ -57,11 +57,8 @@ function playBotGame(seed: number, shiftTokens = 0): Promise<{ room: Room; round
       FAST,
       seed,
     );
-    room.addBot(null, 'normal');
-    room.addBot(null, 'normal');
-    room.addBot(null, 'easy');
-    room.addBot(null, 'easy');
-    room.updateSettings(null, { shiftTokens });
+    room.updateSettings(null, { shiftTokens, maxPlayers: Math.max(bots, 2) });
+    for (let i = 0; i < bots; i++) room.addBot(null, i % 2 === 0 ? 'normal' : 'easy');
     room.start(null);
   });
 }
@@ -92,6 +89,20 @@ describe('full game with 4 bots on the server', () => {
     }
   });
 
+
+  it('finishes 8-player games (and rejects a 9th seat)', async () => {
+    for (const seed of [31, 32, 33]) {
+      const { room } = await playBotGame(seed, seed % 4, 8);
+      expect(room.game!.players).toHaveLength(8);
+      expect(room.game!.winnerIds).toHaveLength(1);
+    }
+    const r = new Room('BIG', () => {}, FAST);
+    r.updateSettings(null, { maxPlayers: 8 });
+    for (let i = 0; i < 8; i++) r.addBot(null, 'easy');
+    expect(() => r.addBot(null, 'easy')).toThrow('All seats are taken');
+    expect(() => r.updateSettings(null, { maxPlayers: 6 })).toThrow(/already seated/);
+    r.close();
+  });
   it('finishes reliably across several seeds', async () => {
     for (const seed of [1, 2, 3, 4, 5]) {
       const { room } = await playBotGame(seed);

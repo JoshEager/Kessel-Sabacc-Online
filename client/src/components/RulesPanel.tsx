@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { ALL_CHEAT_IDS, CHEAT_CATCH_CHANCE, CHEATS } from '../../../shared/src/cheats';
 import { ALL_TOKEN_IDS, SHIFT_TOKENS } from '../../../shared/src/tokens';
 import { TokenChip } from './Tokens';
 
@@ -105,6 +106,23 @@ export function RulesPanel({ open, onClose }: { open: boolean; onClose: () => vo
               Immunity blocks taxes, Embezzlement, Embargo and targeting by other players, but not rule changes (Major Fraud,
               Cook the Books, Markdown, Prime Sabacc).
             </p>
+          </section>
+          <section>
+            <h3>Cheats (optional)</h3>
+            <p>
+              If the host turns them on, anyone may try to cheat. Every attempt has a{' '}
+              <b>{Math.round(CHEAT_CATCH_CHANCE * 100)}% chance of getting caught</b>. Getting caught is announced to the table, the
+              cheat fails, and you pay a fine into your own pot: 1 chip the first time, 2 the second, and so on. A cheat that works
+              stays secret.
+            </p>
+            <ul>
+              {ALL_CHEAT_IDS.map((id) => (
+                <li key={id}>
+                  <b>{CHEATS[id].name}</b> — {CHEATS[id].text} <span className="muted">({CHEATS[id].when}.)</span>
+                </li>
+              ))}
+            </ul>
+            <p className="small">One Peek or Double Draw per turn. Bots never cheat.</p>
           </section>
         </div>
       </aside>

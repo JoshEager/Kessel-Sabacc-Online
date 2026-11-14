@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { cardLabel, SUITS, suitName, type Suit } from '../../../shared/src/cards';
+import { cardLabel, SUITS, suitName, type Card, type Suit } from '../../../shared/src/cards';
 import { DRAW_COST, type DrawSource, type GameAction } from '../../../shared/src/engine';
 import type { RoomView, SeatView } from '../../../shared/src/protocol';
 import { viewCanDrawFrom, type GameView, type PlayerView } from '../../../shared/src/view';
 import { request } from '../net';
 import { isMuted, onMutedChange, play, setMuted } from '../sound';
+import { CHEAT_CATCH_CHANCE } from '../../../shared/src/cheats';
+import { CheatTray } from './Cheats';
 import { CardView } from './Card';
 import { CountdownRing, useSecondsLeft } from './Countdown';
 import { Die } from './Dice';
@@ -13,7 +15,7 @@ import { RulesPanel } from './RulesPanel';
 import { SidePanel } from './SidePanel';
 import { PrimeChoicePrompt, RulesBanner, TokenChip, TokenTray } from './Tokens';
 
-type Pos = 'left' | 'top' | 'right';
+type Pos = 'left' | 'top' | 'right' | 'grid';
 const POSITIONS: Record<number, Pos[]> = { 0: [], 1: ['top'], 2: ['left', 'right'], 3: ['left', 'top', 'right'] };
 
 const SOURCE_LABEL: Record<DrawSource, string> = {
@@ -42,6 +44,8 @@ export function Table({ view, now, onLeave }: { view: RoomView; now: () => numbe
   const myIdx = Math.max(0, game.players.findIndex((p) => p.id === youId));
   const others = [...game.players.slice(myIdx + 1), ...game.players.slice(0, myIdx)];
   const positions = POSITIONS[others.length] ?? [];
+  // More than 3 opponents: lay them out in a grid across the top instead of around the table.
+  const many = others.length > 3;
 
   const myTurn = game.currentPlayerId === youId;
   const iDrew = game.phase === 'discard' && game.pendingDraw?.playerId === youId;
@@ -62,6 +66,14 @@ export function Table({ view, now, onLeave }: { view: RoomView; now: () => numbe
     return () => clearTimeout(t);
   }, [error]);
 
+
+  // Tell the player when they get caught cheating (the log may be tucked away on phones).
+  const caughtRef = useRef(me?.timesCaught ?? 0);
+  useEffect(() => {
+    const n = me?.timesCaught ?? 0;
+    if (n > caughtRef.current) setError(`You were caught cheating! Fined ${n} chip${n === 1 ? '' : 's'} into your pot.`);
+    caughtRef.current = n;
+  }, [me?.timesCaught]);
   const current = game.players.find((p) => p.id === game.currentPlayerId);
 
   return (
@@ -98,20 +110,25 @@ export function Table({ view, now, onLeave }: { view: RoomView; now: () => numbe
       </header>
 
       <div className="game-body">
-        <main className={`felt seats-${others.length}`}>
-          {others.map((p, i) => (
-            <Seat
-              key={p.id}
-              p={p}
-              pos={positions[i]}
-              game={game}
-              seat={seatInfo[p.id]}
-              deadline={view.deadline}
-              turnSeconds={view.settings.turnSeconds}
-              now={now}
-              dealIndex={i + 1}
-            />
-          ))}
+        <main className={`felt seats-${others.length} ${many ? 'many' : ''}`}>
+          {(() => {
+            const seats = others.map((p, i) => (
+              <Seat
+                key={p.id}
+                p={p}
+                pos={many ? 'grid' : positions[i]}
+                game={game}
+                seat={seatInfo[p.id]}
+                deadline={view.deadline}
+                turnSeconds={view.settings.turnSeconds}
+                now={now}
+                dealIndex={i + 1}
+                compact={many}
+                peekHand={me?.peek?.targetId === p.id && !game.revealed ? me.peek.hand : null}
+              />
+            ));
+            return many ? <div className="opp-grid">{seats}</div> : seats;
+          })()}
 
           <Center game={game} canDraw={canDraw && !busy} onDraw={(s) => act({ type: 'draw', source: s })} />
 
@@ -138,7 +155,13 @@ export function Table({ view, now, onLeave }: { view: RoomView; now: () => numbe
         {me?.eliminated ? (
           <p className="status">You are out of chips — watching the rest of the game.</p>
         ) : iDrew && me?.hand ? (
-          <DiscardChooser game={game} me={me} busy={busy} onPick={(card) => act({ type: 'discard', card })} />
+          <DiscardChooser
+            game={game}
+            me={me}
+            busy={busy}
+            onPick={(card) => act({ type: 'discard', card })}
+            onKeepExtra={() => act({ type: 'keepExtra' })}
+          />
         ) : myTurn && game.phase === 'turn' && me ? (
           <div className="turn-controls">
             <div className="turn-head">
@@ -149,6 +172,7 @@ export function Table({ view, now, onLeave }: { view: RoomView; now: () => numbe
               </span>
             </div>
             <TokenTray game={game} youId={youId} busy={busy} act={act} />
+            <CheatTray game={game} youId={youId} busy={busy} canDraw={canDraw} act={act} />
             <div className="turn-buttons">
               <button className="btn stand" disabled={busy} onClick={() => act({ type: 'stand' })}>
                 Stand
@@ -232,6 +256,8 @@ function Seat({
   now,
   isYou,
   dealIndex,
+  compact,
+  peekHand,
 }: {
   p: PlayerView;
   pos: Pos | 'bottom';
@@ -242,6 +268,10 @@ function Seat({
   now: () => number;
   isYou?: boolean;
   dealIndex: number;
+  /** Smaller cards for crowded tables (5+ players). */
+  compact?: boolean;
+  /** Your Peek snapshot of this opponent's hand (shown face up only to you). */
+  peekHand?: { sand: Card; blood: Card } | null;
 }) {
   const isCurrent = game.currentPlayerId === p.id;
   const isDealer = game.dealerId === p.id;
@@ -272,6 +302,11 @@ function Seat({
         )}
         {seat?.isBot && <span className={`badge bot ${seat.botLevel}`}>{seat.botLevel}</span>}
         {seat && !seat.isBot && !seat.connected && <span className="badge off">offline</span>}
+        {p.timesCaught > 0 && (
+          <span className="badge caught" title={`Caught cheating ${p.timesCaught} time${p.timesCaught === 1 ? '' : 's'}`}>
+            Caught ×{p.timesCaught}
+          </span>
+        )}
       </div>
 
       {game.shiftTokensEnabled && !p.eliminated && (
@@ -307,15 +342,16 @@ function Seat({
         ) : (
           p.hand &&
           SUITS.map((suit, si) => {
-            const card = p.hand?.[suit] ?? null;
+            const peeked = !p.hand?.[suit] && peekHand ? peekHand[suit] : null;
+            const card = p.hand?.[suit] ?? peeked ?? null;
             const roll = rolls?.[suit];
             return (
-              <div key={suit} className="card-slot">
+              <div key={suit} className={`card-slot ${peeked ? 'peeked' : ''}`} title={peeked ? 'Peeked (as of your peek)' : undefined}>
                 <CardView
                   key={isYou && card ? `${game.round}-${card.id}` : `${game.round}-${suit}`}
                   card={card}
                   suit={suit}
-                  size={isYou ? 'lg' : 'md'}
+                  size={isYou ? 'lg' : compact ? 'sm' : 'md'}
                   className={freshDeal || !isYou ? 'deal' : 'draw-in'}
                   style={freshDeal ? { ['--deal-delay' as string]: `${dealIndex * 0.12 + si * 0.5}s` } : undefined}
                 />
@@ -425,16 +461,48 @@ function DiscardChooser({
   me,
   busy,
   onPick,
+  onKeepExtra,
 }: {
   game: GameView;
   me: PlayerView;
   busy: boolean;
   onPick: (c: 'drawn' | 'held') => void;
+  onKeepExtra: () => void;
 }) {
   const drawn = game.pendingDraw?.card;
+  const extra = game.pendingDraw?.extra ?? null;
   if (!drawn || !me.hand) return null;
   const suit: Suit = drawn.suit;
   const held = me.hand[suit];
+
+  if (extra) {
+    // Double Draw: keep one of three. One of the others is discarded face up, the spare goes back into the deck.
+    const options: { key: string; card: typeof drawn; label: string; keep: () => void }[] = [
+      { key: 'held', card: held as typeof drawn, label: 'Your card', keep: () => onPick('drawn') },
+      { key: 'drawn', card: drawn, label: 'Drawn', keep: () => onPick('held') },
+      { key: 'extra', card: extra, label: 'Drawn (cheat)', keep: onKeepExtra },
+    ];
+    return (
+      <div className="discard-chooser">
+        <p>
+          <b>Double Draw worked — keep one {suitName(suit)} card.</b>{' '}
+          <span className="muted small">Everyone sees a normal draw; the spare slips back into the deck.</span>
+        </p>
+        <div className="choice-cards">
+          {options.map((o) => (
+            <div key={o.key} className="choice">
+              <CardView card={o.card} suit={suit} size="lg" className={o.key === 'held' ? '' : 'draw-in'} onClick={o.keep} disabled={busy} label={`Keep ${o.label}`} />
+              <span className="choice-label">{o.label}</span>
+              <button className="btn small primary" disabled={busy} onClick={o.keep}>
+                Keep this
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="discard-chooser">
       <p>
@@ -475,9 +543,18 @@ function ImpostorPrompt({
   const me = game.players.find((p) => p.id === youId);
   const left = useSecondsLeft(deadline, now);
   const [busy, setBusy] = useState(false);
+  const [cheatMsg, setCheatMsg] = useState<string | null>(null);
   const pendingSuits = SUITS.filter((s) => rolls?.[s] && rolls[s]!.choice === null);
   if (!rolls || !me?.hand || pendingSuits.length === 0) return null;
 
+  const canNudge = (r: { choice: 0 | 1 | null; nudged?: boolean }) => game.cheatsEnabled && r.choice === null && !r.nudged;
+  async function nudge(suit: Suit, die: 0 | 1, delta: 1 | -1) {
+    setBusy(true);
+    const res = await request('game:action', { type: 'cheat', cheat: 'magneticDice', suit, die, delta });
+    setBusy(false);
+    if (!res.ok) setCheatMsg(res.error);
+    else setCheatMsg(null);
+  }
   async function choose(suit: Suit, choice: 0 | 1) {
     setBusy(true);
     await request('game:action', { type: 'chooseImpostor', suit, choice });
@@ -491,6 +568,13 @@ function ImpostorPrompt({
         <p className="muted small">
           Pick one die for each Impostor. {left !== null && <>Best value is chosen for you in {left}s.</>}
         </p>
+        {game.cheatsEnabled && SUITS.some((s) => rolls[s] && canNudge(rolls[s]!)) && (
+          <p className="small cheat-hint">
+            <b>Magnetic Dice</b> (cheat): nudge one die up or down by 1, once per Impostor. {Math.round(CHEAT_CATCH_CHANCE * 100)}% chance
+            to get caught.
+          </p>
+        )}
+        {cheatMsg && <p className="error small">{cheatMsg}</p>}
         {SUITS.filter((s) => rolls[s]).map((suit) => {
           const r = rolls[suit]!;
           const other = me.hand![suit === 'sand' ? 'blood' : 'sand'];
@@ -499,15 +583,26 @@ function ImpostorPrompt({
               <CardView card={me.hand![suit]} suit={suit} size="sm" />
               <div className="dice-choice">
                 {r.dice.map((d, i) => (
-                  <Die
-                    key={i}
-                    value={d}
-                    rollKey={`${game.round}-${suit}-${i}`}
-                    size={56}
-                    selected={r.choice === i}
-                    dimmed={r.choice !== null && r.choice !== i}
-                    onClick={r.choice === null && !busy ? () => choose(suit, i as 0 | 1) : undefined}
-                  />
+                  <div key={i} className="die-col">
+                    <Die
+                      value={d}
+                      rollKey={`${game.round}-${suit}-${i}`}
+                      size={56}
+                      selected={r.choice === i}
+                      dimmed={r.choice !== null && r.choice !== i}
+                      onClick={r.choice === null && !busy ? () => choose(suit, i as 0 | 1) : undefined}
+                    />
+                    {canNudge(r) && (
+                      <span className="nudge">
+                        <button className="btn icon small" disabled={busy || d >= 6} aria-label={`Nudge die to ${d + 1}`} onClick={() => nudge(suit, i as 0 | 1, 1)}>
+                          ▲
+                        </button>
+                        <button className="btn icon small" disabled={busy || d <= 1} aria-label={`Nudge die to ${d - 1}`} onClick={() => nudge(suit, i as 0 | 1, -1)}>
+                          ▼
+                        </button>
+                      </span>
+                    )}
+                  </div>
                 ))}
               </div>
               <span className="muted small">
@@ -544,6 +639,7 @@ function useGameSounds(game: GameView, youId: string, view: RoomView) {
     if (game.phase === 'primeChoice' && g0.phase !== 'primeChoice') play('dice');
     const lastSeq = g0.log.at(-1)?.seq ?? 0;
     if (game.log.some((l) => l.seq > lastSeq && l.kind === 'token' && / plays /.test(l.text))) play('token');
+    if (game.log.some((l) => l.seq > lastSeq && l.kind === 'cheat')) play('lose');
     if (game.currentPlayerId === youId && game.phase === 'turn' && (g0.currentPlayerId !== youId || g0.phase !== 'turn')) play('turn');
     if ((game.phase === 'roundEnd' || game.phase === 'gameOver') && g0.phase !== game.phase && game.lastResult) {
       const mine = game.lastResult.hands.find((h) => h.playerId === youId);

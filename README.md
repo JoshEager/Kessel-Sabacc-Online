@@ -1,14 +1,15 @@
 # Kessel Sabacc Online
 
-A multiplayer web version of **Kessel Sabacc**, the card game from *Star Wars Outlaws* — Sand and Blood decks, Impostors and Sylops, plus optional random shift tokens. Players meet in private rooms, and AI bots can fill empty seats.
+A multiplayer web version of **Kessel Sabacc**, the card game from *Star Wars Outlaws* — Sand and Blood decks, Impostors and Sylops, plus optional random shift tokens and cheats. Players meet at public or private tables of 2–8, and AI bots can fill empty seats.
 
 This is an unofficial fan project. All card art, symbols and UI are original CSS/SVG; no Star Wars logos, fonts or game assets are used.
 
 ## Features
 
-- Public tables listed in a live browser that anyone can join, and private rooms that need the code or share link (`/?r=CODE`); 2–4 seats
-- The host sets visibility (public or private), starting chips (4/6/8/10), the turn timer (15–90s, default 30s) and shift tokens (off, or 1–3 random per player), adds or removes Easy/Normal bots, and starts the game
+- Public tables listed in a live browser that anyone can join, and private rooms that need the code or share link (`/?r=CODE`); tables of 2–8 players
+- The host sets visibility (public or private), table size (2–8), cheats (off or on), starting chips (4/6/8/10), the turn timer (15–90s, default 30s) and shift tokens (off, or 1–3 random per player), adds or removes Easy/Normal bots, and starts the game
 - All 16 shift tokens from the game, with targeting, a banner for active rule changes, and bots that use them
+- Optional cheats modelled on the game's three: Peek, Double Draw and Magnetic Dice, with a chance of getting caught
 - An authoritative server: all shuffling, dealing, dice and rule checks happen on the server, and clients never receive hidden cards or deck order
 - Reconnects after a refresh (the session token is kept in `localStorage`); a disconnected or timed-out player automatically stands
 - Timed Impostor dice choices (the best value is picked automatically on timeout), a round summary, a game log, chat, rematch and back-to-lobby
@@ -133,6 +134,7 @@ Any Node 20+ host works. Build with `npm ci --include=dev && npm run build`, sta
 - At the reveal, each Impostor rolls two dice and its owner picks one. A Sylop copies the other card's value.
 - Ranking: Pure Sabacc (two Sylops) > Prime Sabacc (pair of 1s) > other pairs (lower is better) > no pair (lower difference, then lower sum). Exact ties share the win.
 - Optional shift tokens: the host sets 0–3 random tokens per player. Play one per turn, before acting, to tax opponents, refund chips, swap hands or change the round's rules. The full list is in the in-game Rules panel.
+- Optional cheats: Peek at an opponent's hand, Double Draw (keep the best of three), or nudge an Impostor die with Magnetic Dice. Each attempt has a 25% chance of getting caught, which is announced and fined.
 - Winners take back what they invested. Losers lose what they invested and also pay a penalty: 1 chip with a Sabacc, otherwise their difference (capped at what they have). A player with 0 chips is out, and the last player with chips wins.
 
 ## Rule interpretations
@@ -171,3 +173,14 @@ The token list and effect text follow the *Star Wars Outlaws* tokens (16 in tota
     - **Cook the Books** reverses the order of the pairs (6s best, 1s worst). Pure Sabacc stays on top, and playing it a second time flips the order back.
     - **Prime Sabacc** rolls two dice on the server and the player picks one. A pair of that value becomes the best Sabacc, below only Pure Sabacc, and takes the Prime Sabacc label. If the timer runs out, the server picks the die that helps your hand most and then you stand.
 23. **Exhaustion** sends the target's hand to the discard piles and deals them a new one from the decks, which only they see. **Direct Transaction** swaps your hand with the target's.
+
+### Cheats and larger tables
+
+The *Star Wars Outlaws* version has three cheats (Nix Peek, Double Draw and Magnetic Dice) used against AI players, with a timing minigame and table bans. Guides only describe them loosely, so this multiplayer version works like this:
+
+24. **Off by default.** The host turns cheats on for the whole table in the lobby. Bots never cheat.
+25. **Getting caught:** every attempt has a flat **25% chance** of being caught. A caught cheat fails, is announced in the log, adds a "Caught ×N" badge to your seat, and fines you into your own pot: 1 chip the first time, 2 the second, and so on (capped at what you have). There are no table bans. A cheat that works leaves no trace in the log.
+26. **Peek** (on your turn, before acting, once per turn): see one opponent's hand. It is a snapshot taken at that moment, shown face up only to you for the rest of the round. Immune players can't be peeked at.
+27. **Double Draw** (instead of a normal deck draw, costs the usual chip): draw two cards from a deck, keep one of the three, discard one face up, and slip the spare back into the deck at a random position. Everyone else just sees a normal draw. If you're caught, it becomes a normal single draw plus the fine.
+28. **Magnetic Dice** (at the reveal, once per Impostor): nudge one of your Impostor's dice up or down by 1 (staying within 1–6) before choosing. The dice are public, so a sharp-eyed opponent may notice a die change.
+29. **Larger tables:** tables hold 2–8 players (4 by default). With more than 3 opponents, they're shown in a grid across the top of the table. The deck rules are unchanged: the 22-card decks are rebuilt from the discard piles when they run out.

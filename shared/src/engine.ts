@@ -11,13 +11,17 @@ import {
   type ResolvedHand,
   type RoundRules,
 } from './evaluate';
+import { CHEAT_CATCH_CHANCE, CHEATS, cheatFine, isCheatId, type CheatId } from './cheats';
 import { rollDie, shuffle, type Rng } from './rng';
 import { ALL_TOKEN_IDS, isShiftTokenId, MAX_TOKENS_PER_PLAYER, SHIFT_TOKENS, type ShiftTokenId } from './tokens';
 
 export const TURNS_PER_ROUND = 3;
 export const DRAW_COST = 1;
 export const MIN_PLAYERS = 2;
-export const MAX_PLAYERS = 4;
+export const MAX_PLAYERS = 8;
+/** Table sizes the host can pick (the room's seat limit). */
+export const TABLE_SIZE_OPTIONS = [2, 3, 4, 5, 6, 7, 8] as const;
+export const DEFAULT_TABLE_SIZE = 4;
 export const STARTING_CHIP_OPTIONS = [4, 6, 8, 10] as const;
 
 export type DrawSource = 'sandDeck' | 'bloodDeck' | 'sandDiscard' | 'bloodDiscard';
@@ -57,17 +61,25 @@ export interface PlayerState {
   embargoed: boolean;
   /** What this player did on their most recent turn this round (public). */
   lastAction: 'stand' | 'draw' | null;
+  /** Times this player has been caught cheating this game (public). */
+  timesCaught: number;
+  /** Result of a successful Peek this round: a snapshot of another player's hand (private). */
+  peek: { targetId: string; hand: Hand } | null;
 }
 
 export interface PendingDraw {
   playerId: string;
   source: DrawSource;
   card: Card;
+  /** Double Draw: the second card drawn (private to the drawer). */
+  extra?: Card;
 }
 
 export interface ImpostorRoll {
   dice: DicePair;
   choice: ImpostorChoiceIndex | null;
+  /** Magnetic Dice already attempted on this Impostor. */
+  nudged?: boolean;
 }
 
 export interface PendingPrime {
@@ -81,12 +93,20 @@ export type GameAction =
   | { type: 'discard'; card: 'drawn' | 'held' }
   | { type: 'chooseImpostor'; suit: Suit; choice: ImpostorChoiceIndex }
   | { type: 'playToken'; token: ShiftTokenId; targetId?: string }
-  | { type: 'choosePrime'; choice: ImpostorChoiceIndex };
+  | { type: 'choosePrime'; choice: ImpostorChoiceIndex }
+  | CheatAction
+  /** After a successful Double Draw: keep the second drawn card (the first goes back into the deck). */
+  | { type: 'keepExtra' };
+
+export type CheatAction =
+  | { type: 'cheat'; cheat: 'peek'; targetId: string }
+  | { type: 'cheat'; cheat: 'doubleDraw'; source: DrawSource }
+  | { type: 'cheat'; cheat: 'magneticDice'; suit: Suit; die: ImpostorChoiceIndex; delta: 1 | -1 };
 
 export interface LogEntry {
   seq: number;
   round: number;
-  kind: 'action' | 'round' | 'reveal' | 'system' | 'token';
+  kind: 'action' | 'round' | 'reveal' | 'system' | 'token' | 'cheat';
   text: string;
 }
 
@@ -128,6 +148,8 @@ export interface GameConfig {
   startingChips: number;
   /** Random shift tokens dealt to each player at the start of the game (0 = off). */
   shiftTokens?: number;
+  /** Optional cheats (Peek, Double Draw, Magnetic Dice). */
+  cheats?: boolean;
 }
 
 export interface GameState {
@@ -158,6 +180,8 @@ export interface GameState {
   /** Free Draw active for the current turn. */
   freeDraw: boolean;
   pendingPrime: PendingPrime | null;
+  /** Whether the current player has already attempted a cheat this turn. */
+  cheatUsedThisTurn: boolean;
 }
 
 export class IllegalMoveError extends Error {
@@ -243,7 +267,7 @@ export function createGame(
     throw new IllegalMoveError(`Shift tokens must be 0–${MAX_TOKENS_PER_PLAYER}`);
   }
   const state: GameState = {
-    config: { ...config, shiftTokens: tokenCount },
+    config: { ...config, shiftTokens: tokenCount, cheats: config.cheats === true },
     players: players.map((p) => ({
       id: p.id,
       name: p.name,
@@ -256,6 +280,8 @@ export function createGame(
       immune: false,
       embargoed: false,
       lastAction: null,
+      timesCaught: 0,
+      peek: null,
     })),
     round: 0,
     dealerIndex: opts.firstDealerIndex ?? 0,
@@ -275,6 +301,7 @@ export function createGame(
     tokenPlayedThisTurn: false,
     freeDraw: false,
     pendingPrime: null,
+    cheatUsedThisTurn: false,
   };
   return startRoundMut(state, rng);
 }
@@ -295,6 +322,7 @@ function startRoundMut(state: GameState, rng: Rng): GameState {
   state.rules = {};
   state.tokenPlayedThisTurn = false;
   state.freeDraw = false;
+  state.cheatUsedThisTurn = false;
 
   // Turn order: player to the dealer's left first, dealer last.
   const order: string[] = [];
@@ -314,6 +342,7 @@ function startRoundMut(state: GameState, rng: Rng): GameState {
     p.immune = false;
     p.embargoed = false;
     p.lastAction = null;
+    p.peek = null;
   }
   // 2. Deal 1 Sand + 1 Blood to each active player.
   for (const id of order) {
@@ -524,6 +553,125 @@ function playTokenMut(state: GameState, player: PlayerState, token: ShiftTokenId
   }
 }
 
+// ---------- cheats ----------
+
+/** Why `action` can't be attempted right now, or null if it can (the attempt may still be caught). */
+export function cheatBlockReason(state: GameState, playerId: string, action: CheatAction): string | null {
+  if (!state.config.cheats) return 'Cheats are off at this table';
+  if (!isCheatId(action?.cheat)) return 'Unknown cheat';
+  const p = getPlayer(state, playerId);
+  if (p.eliminated) return 'You have been eliminated';
+  if (action.cheat === 'magneticDice') {
+    if (state.phase !== 'impostor') return 'Magnetic Dice works at the reveal, on your Impostor dice';
+    const roll = state.impostorRolls[playerId]?.[action.suit];
+    if (!roll) return 'You have no Impostor in that suit';
+    if (roll.choice !== null) return 'That Impostor is already set';
+    if (roll.nudged) return 'You already tried Magnetic Dice on that Impostor';
+    if (action.die !== 0 && action.die !== 1) return 'Pick one of the two dice';
+    if (action.delta !== 1 && action.delta !== -1) return 'Nudge a die up or down by 1';
+    const v = roll.dice[action.die] + action.delta;
+    if (v < 1 || v > 6) return 'Dice only go from 1 to 6';
+    return null;
+  }
+  if (state.phase !== 'turn' || currentPlayerId(state) !== playerId) return 'Cheat on your own turn';
+  if (state.cheatUsedThisTurn) return 'One cheat per turn';
+  if (action.cheat === 'peek') {
+    const t = state.players.find((x) => x.id === action.targetId);
+    if (!t || t.id === playerId || t.eliminated || !t.hand) return 'Pick an opponent still in the round';
+    if (t.immune) return `${t.name} is immune this round`;
+    return null;
+  }
+  // doubleDraw
+  if (!DRAW_SOURCES.includes(action.source) || !sourceIsDeck(action.source)) return 'Double Draw only works on a deck';
+  if (p.embargoed) return 'You are under Embargo and must stand';
+  if (!mayDraw(state, p)) return 'You have no chips — you must stand';
+  if (!canDrawFrom(state, action.source)) return `The ${suitName(sourceSuit(action.source))} deck is empty`;
+  return null;
+}
+
+/** Rolls for getting caught. On a catch: public log, escalating fine into the cheater's own pot. */
+function caughtCheating(state: GameState, player: PlayerState, cheat: CheatId, rng: Rng): boolean {
+  if (rng() >= CHEAT_CATCH_CHANCE) return false;
+  player.timesCaught += 1;
+  addLog(state, 'cheat', `${player.name} was caught trying to cheat (${CHEATS[cheat].name})!`);
+  tax(state, player, cheatFine(player.timesCaught), 'cheating fine');
+  return true;
+}
+
+/** Takes the top card of a draw source (rebuilding an empty deck first). */
+function takeCard(state: GameState, source: DrawSource, rng: Rng): Card {
+  const suit = sourceSuit(source);
+  let card: Card | undefined;
+  if (sourceIsDeck(source)) {
+    if (!ensureDeck(state, suit, rng)) throw new IllegalMoveError(`The ${suitName(suit)} deck is empty`);
+    card = state.decks[suit].pop();
+  } else {
+    card = state.discards[suit].pop();
+  }
+  if (!card) throw new IllegalMoveError('Nothing to draw there');
+  return card;
+}
+
+/** Pays for a draw (or uses up a Free Draw). */
+function payForDraw(state: GameState, player: PlayerState): void {
+  if (state.freeDraw) {
+    state.freeDraw = false;
+  } else {
+    player.chips -= DRAW_COST;
+    player.invested += DRAW_COST;
+  }
+}
+
+/** Slips a card back into its deck at a random position (Double Draw's spare card). */
+function returnToDeck(state: GameState, card: Card, rng: Rng): void {
+  const deck = state.decks[card.suit];
+  deck.splice(Math.floor(rng() * (deck.length + 1)), 0, card);
+}
+
+/** Finishes a draw: `discarded` goes face up on the pile, the hand keeps whatever is left. */
+function finishDraw(state: GameState, player: PlayerState, discarded: Card, rng: Rng): void {
+  const pending = state.pendingDraw as PendingDraw;
+  state.discards[discarded.suit].push(discarded);
+  addLog(state, 'action', `${player.name} drew from ${sourceName(pending.source)}, discarded ${cardLabel(discarded)}.`);
+  state.pendingDraw = null;
+  player.lastAction = 'draw';
+  state.phase = 'turn';
+  advanceTurn(state, rng);
+}
+
+function cheatMut(state: GameState, player: PlayerState, action: CheatAction, rng: Rng): void {
+  const reason = cheatBlockReason(state, player.id, action);
+  if (reason) throw new IllegalMoveError(reason);
+  switch (action.cheat) {
+    case 'peek': {
+      state.cheatUsedThisTurn = true;
+      if (caughtCheating(state, player, 'peek', rng)) return;
+      const target = getPlayer(state, action.targetId);
+      player.peek = { targetId: target.id, hand: structuredClone(target.hand as Hand) };
+      return;
+    }
+    case 'doubleDraw': {
+      state.cheatUsedThisTurn = true;
+      const card = takeCard(state, action.source, rng);
+      payForDraw(state, player);
+      state.pendingDraw = { playerId: player.id, source: action.source, card };
+      state.phase = 'discard';
+      // Caught: it's just a normal draw (plus the fine). Otherwise draw a second card if there is one.
+      if (caughtCheating(state, player, 'doubleDraw', rng)) return;
+      const suit = sourceSuit(action.source);
+      if (ensureDeck(state, suit, rng)) state.pendingDraw.extra = state.decks[suit].pop();
+      return;
+    }
+    case 'magneticDice': {
+      const roll = state.impostorRolls[player.id]![action.suit]!;
+      roll.nudged = true;
+      if (caughtCheating(state, player, 'magneticDice', rng)) return;
+      roll.dice[action.die] += action.delta;
+      return;
+    }
+  }
+}
+
 export function legalActions(state: GameState, playerId: string): GameAction[] {
   const acts: GameAction[] = [];
   if (state.phase === 'turn' && currentPlayerId(state) === playerId) {
@@ -571,21 +719,8 @@ export function applyAction(prev: GameState, playerId: string, action: GameActio
       if (!DRAW_SOURCES.includes(action.source)) throw new IllegalMoveError('Unknown draw source');
       if (player.embargoed) throw new IllegalMoveError('You are under Embargo and must stand');
       if (!mayDraw(state, player)) throw new IllegalMoveError('You have no chips — you must stand');
-      const suit = sourceSuit(action.source);
-      let card: Card | undefined;
-      if (sourceIsDeck(action.source)) {
-        if (!ensureDeck(state, suit, rng)) throw new IllegalMoveError(`The ${suitName(suit)} deck is empty`);
-        card = state.decks[suit].pop();
-      } else {
-        card = state.discards[suit].pop();
-      }
-      if (!card) throw new IllegalMoveError('Nothing to draw there');
-      if (state.freeDraw) {
-        state.freeDraw = false;
-      } else {
-        player.chips -= DRAW_COST;
-        player.invested += DRAW_COST;
-      }
+      const card = takeCard(state, action.source, rng);
+      payForDraw(state, player);
       state.pendingDraw = { playerId, source: action.source, card };
       state.phase = 'discard';
       return state;
@@ -605,12 +740,26 @@ export function applyAction(prev: GameState, playerId: string, action: GameActio
         discarded = hand[suit];
         hand[suit] = pending.card;
       }
-      state.discards[suit].push(discarded);
-      addLog(state, 'action', `${player.name} drew from ${sourceName(pending.source)}, discarded ${cardLabel(discarded)}.`);
-      state.pendingDraw = null;
-      player.lastAction = 'draw';
-      state.phase = 'turn';
-      advanceTurn(state, rng);
+      // Double Draw: the card that wasn't chosen slips back into the deck unseen.
+      if (pending.extra) returnToDeck(state, pending.extra, rng);
+      finishDraw(state, player, discarded, rng);
+      return state;
+    }
+    case 'keepExtra': {
+      const pending = state.pendingDraw;
+      if (state.phase !== 'discard' || !pending || pending.playerId !== playerId || !pending.extra) {
+        throw new IllegalMoveError('You have no second card to keep');
+      }
+      const hand = player.hand as Hand;
+      const suit = pending.extra.suit;
+      const discarded = hand[suit];
+      hand[suit] = pending.extra;
+      returnToDeck(state, pending.card, rng);
+      finishDraw(state, player, discarded, rng);
+      return state;
+    }
+    case 'cheat': {
+      cheatMut(state, player, action, rng);
       return state;
     }
     case 'playToken': {
@@ -651,6 +800,7 @@ function advanceTurn(state: GameState, rng: Rng): void {
   state.turnIndex += 1;
   state.tokenPlayedThisTurn = false;
   state.freeDraw = false;
+  state.cheatUsedThisTurn = false;
   if (state.turnIndex >= state.turnOrder.length * TURNS_PER_ROUND) beginReveal(state, rng);
 }
 

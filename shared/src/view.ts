@@ -31,6 +31,10 @@ export interface PlayerView {
   immune: boolean;
   embargoed: boolean;
   lastAction: 'stand' | 'draw' | null;
+  /** Times caught cheating this game (public). */
+  timesCaught: number;
+  /** Own successful Peek this round (a snapshot of another player's hand); always null for others. */
+  peek: { targetId: string; hand: { sand: Card; blood: Card } } | null;
 }
 
 export interface PendingDrawView {
@@ -38,6 +42,8 @@ export interface PendingDrawView {
   source: DrawSource;
   /** Only visible to the drawer, or to everyone when taken from a (face-up) discard pile. */
   card: Card | null;
+  /** Double Draw: the second card, only ever visible to the drawer. */
+  extra: Card | null;
 }
 
 /** Everything one seat is allowed to know. Never contains deck order, hidden cards or others' tokens. */
@@ -66,6 +72,8 @@ export interface GameView {
   tokenPlayedThisTurn: boolean;
   freeDraw: boolean;
   pendingPrime: PendingPrime | null;
+  cheatsEnabled: boolean;
+  cheatUsedThisTurn: boolean;
 }
 
 export function isRevealPhase(phase: GamePhase): boolean {
@@ -91,6 +99,8 @@ export function toGameView(state: GameState, viewerId: string | null): GameView 
       immune: p.immune,
       embargoed: p.embargoed,
       lastAction: p.lastAction,
+      timesCaught: p.timesCaught,
+      peek: p.id === viewerId && p.peek ? structuredClone(p.peek) : null,
     };
   });
   const pd = state.pendingDraw;
@@ -99,6 +109,7 @@ export function toGameView(state: GameState, viewerId: string | null): GameView 
         playerId: pd.playerId,
         source: pd.source,
         card: pd.playerId === viewerId || pd.source.endsWith('Discard') ? { ...pd.card } : null,
+        extra: pd.playerId === viewerId && pd.extra ? { ...pd.extra } : null,
       }
     : null;
   const discards = {} as Record<Suit, Card[]>;
@@ -131,6 +142,8 @@ export function toGameView(state: GameState, viewerId: string | null): GameView 
     tokenPlayedThisTurn: state.tokenPlayedThisTurn,
     freeDraw: state.freeDraw,
     pendingPrime: state.pendingPrime ? structuredClone(state.pendingPrime) : null,
+    cheatsEnabled: state.config.cheats === true,
+    cheatUsedThisTurn: state.cheatUsedThisTurn,
   };
 }
 

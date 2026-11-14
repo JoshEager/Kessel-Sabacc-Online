@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MAX_PLAYERS, MIN_PLAYERS, STARTING_CHIP_OPTIONS } from '../../../shared/src/engine';
+import { MIN_PLAYERS, STARTING_CHIP_OPTIONS, TABLE_SIZE_OPTIONS } from '../../../shared/src/engine';
 import { TURN_TIMER_OPTIONS, type RoomView } from '../../../shared/src/protocol';
 import { SHIFT_TOKEN_OPTIONS } from '../../../shared/src/tokens';
 import { request, roomLink } from '../net';
@@ -33,7 +33,7 @@ export function Lobby({ view, onLeave }: { view: RoomView; onLeave: () => void }
     }
   }
 
-  const empty = MAX_PLAYERS - view.seats.length;
+  const empty = Math.max(0, view.settings.maxPlayers - view.seats.length);
 
   return (
     <div className="lobby">
@@ -65,7 +65,7 @@ export function Lobby({ view, onLeave }: { view: RoomView; onLeave: () => void }
           </div>
 
           <h2 className="section-title">
-            Seats <span className="muted">({view.seats.length}/{MAX_PLAYERS})</span>
+            Seats <span className="muted">({view.seats.length}/{view.settings.maxPlayers})</span>
           </h2>
           <ul className="seat-list">
             {view.seats.map((s) => (
@@ -84,10 +84,10 @@ export function Lobby({ view, onLeave }: { view: RoomView; onLeave: () => void }
                 )}
               </li>
             ))}
-            {Array.from({ length: empty }, (_, i) => (
-              <li key={`empty${i}`} className="seat-row empty">
+            {empty > 0 && (
+              <li className="seat-row empty">
                 <span className="presence" />
-                <span className="seat-name muted">Open seat</span>
+                <span className="seat-name muted">{empty === 1 ? '1 open seat' : `${empty} open seats`}</span>
                 {isHost && (
                   <span className="add-bot">
                     <button className="btn small" onClick={() => run('room:addBot', { level: 'easy' })}>
@@ -99,7 +99,7 @@ export function Lobby({ view, onLeave }: { view: RoomView; onLeave: () => void }
                   </span>
                 )}
               </li>
-            ))}
+            )}
           </ul>
 
           <h2 className="section-title">Table settings</h2>
@@ -113,6 +113,20 @@ export function Lobby({ view, onLeave }: { view: RoomView; onLeave: () => void }
               >
                 <option value="private">Private (code or link)</option>
                 <option value="public">Public (listed for anyone)</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Table size</span>
+              <select
+                value={view.settings.maxPlayers}
+                disabled={!isHost}
+                onChange={(e) => run('room:settings', { maxPlayers: Number(e.target.value) })}
+              >
+                {TABLE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n} disabled={n < view.seats.length}>
+                    {n} players
+                  </option>
+                ))}
               </select>
             </label>
             <label className="field">
@@ -155,6 +169,17 @@ export function Lobby({ view, onLeave }: { view: RoomView; onLeave: () => void }
                     {n === 0 ? 'Off' : `${n} random per player`}
                   </option>
                 ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Cheats</span>
+              <select
+                value={view.settings.cheats ? 'on' : 'off'}
+                disabled={!isHost}
+                onChange={(e) => run('room:settings', { cheats: e.target.value === 'on' })}
+              >
+                <option value="off">Off</option>
+                <option value="on">On (Peek, Double Draw, Magnetic Dice)</option>
               </select>
             </label>
           </div>

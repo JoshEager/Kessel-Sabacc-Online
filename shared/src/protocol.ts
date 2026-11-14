@@ -16,6 +16,10 @@ export interface RoomSettings {
   shiftTokens: number;
   /** Listed in the public games browser (anyone can join). Private rooms need the code or link. */
   isPublic: boolean;
+  /** Seat limit for this room (2–8). */
+  maxPlayers: number;
+  /** Optional cheats (Peek, Double Draw, Magnetic Dice), off by default. */
+  cheats: boolean;
 }
 
 export interface SeatView {
