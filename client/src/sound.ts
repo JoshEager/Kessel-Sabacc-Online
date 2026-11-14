@@ -1,7 +1,7 @@
 import { loadPref, savePref } from './net';
 
 /** Tiny synthesized sound effects (WebAudio, no assets). Muted by default. */
-export type SoundName = 'deal' | 'draw' | 'discard' | 'dice' | 'turn' | 'win' | 'lose' | 'chat';
+export type SoundName = 'deal' | 'draw' | 'discard' | 'dice' | 'turn' | 'win' | 'lose' | 'chat' | 'token';
 
 let ctx: AudioContext | null = null;
 let muted = loadPref('muted') !== 'false';
@@ -96,6 +96,10 @@ export function play(name: SoundName): void {
       break;
     case 'lose':
       tone(330, 0, 0.25, 'sawtooth', 0.04, 220);
+      break;
+    case 'token':
+      tone(392, 0, 0.1, 'square', 0.04);
+      tone(587, 0.07, 0.16, 'triangle', 0.08, 880);
       break;
     case 'chat':
       tone(880, 0, 0.06, 'sine', 0.05);

@@ -6,6 +6,7 @@ import { request } from '../net';
 import { CardView } from './Card';
 import { useSecondsLeft } from './Countdown';
 import { DieFace } from './Dice';
+import { activeRuleLabels } from './Tokens';
 
 function chipText(c: ChipChange): string {
   const parts: string[] = [];
@@ -24,13 +25,20 @@ function Resolution({ h }: { h: HandResult }) {
   const bits: ReactNode[] = [];
   for (const suit of ['sand', 'blood'] as const) {
     const imp = h.impostors[suit];
-    if (imp) {
+    if (imp && !imp.dice) {
+      bits.push(
+        <span key={`i${suit}`} className="res-bit">
+          {suitName(suit)} Impostor → {imp.value} (Major Fraud)
+        </span>,
+      );
+    } else if (imp && imp.dice) {
+      const dice = imp.dice;
       bits.push(
         <span key={`i${suit}`} className="res-bit">
           {suitName(suit)} Impostor rolled
           <span className="mini-dice">
-            {imp.dice.map((d, i) => (
-              <span key={i} className={`mini-die ${d === imp.value && imp.dice.indexOf(d) === i ? 'picked' : ''}`}>
+            {dice.map((d, i) => (
+              <span key={i} className={`mini-die ${d === imp.value && dice.indexOf(d) === i ? 'picked' : ''}`}>
                 <DieFace value={d} />
               </span>
             ))}
@@ -52,7 +60,7 @@ function Resolution({ h }: { h: HandResult }) {
     const v = s === 'sand' ? h.resolved.sandValue : h.resolved.bloodValue;
     bits.push(
       <span key="s" className="res-bit">
-        {suitName(s)} Sylop copies {v}
+        {suitName(s)} Sylop {h.resolved.notes.some((n) => n.includes('Markdown')) ? `is worth 0 (Markdown)` : `copies ${v}`}
       </span>,
     );
   }
@@ -113,6 +121,15 @@ export function RoundSummary({ view, now, onLeave }: { view: RoomView; now: () =
         <p className="summary-lead">
           {winners.join(' & ')} {winners.length > 1 ? 'tie with' : 'wins with'} <b>{best}</b>.
         </p>
+        {activeRuleLabels(result.rules ?? {}).length > 0 && (
+          <div className="rules-banner in-summary">
+            {activeRuleLabels(result.rules ?? {}).map((l) => (
+              <span key={l} className="rule-pill">
+                {l}
+              </span>
+            ))}
+          </div>
+        )}
 
         <div className="summary-table">
           {result.hands.map((h) => {

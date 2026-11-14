@@ -19,7 +19,7 @@ function cardCount(g: GameState): number {
   return n;
 }
 
-function playBotGame(seed: number): Promise<{ room: Room; rounds: number; checks: number }> {
+function playBotGame(seed: number, shiftTokens = 0): Promise<{ room: Room; rounds: number; checks: number }> {
   return new Promise((resolve, reject) => {
     let checks = 0;
     let lastTotal = Infinity;
@@ -61,6 +61,7 @@ function playBotGame(seed: number): Promise<{ room: Room; rounds: number; checks
     room.addBot(null, 'normal');
     room.addBot(null, 'easy');
     room.addBot(null, 'easy');
+    room.updateSettings(null, { shiftTokens });
     room.start(null);
   });
 }
@@ -79,6 +80,16 @@ describe('full game with 4 bots on the server', () => {
     expect(alive[0].chips).toBeGreaterThan(0);
     for (const p of g.players.filter((x) => x.eliminated)) expect(p.chips).toBe(0);
     expect(room.chat.some((m) => /wins the game/.test(m.text))).toBe(true);
+  });
+
+  it('finishes with random shift tokens in play (3 each)', async () => {
+    for (const seed of [21, 22, 23, 24, 25]) {
+      const { room } = await playBotGame(seed, 3);
+      const g = room.game!;
+      expect(g.winnerIds).toHaveLength(1);
+      expect(g.config.shiftTokens).toBe(3);
+      expect(g.log.length).toBeGreaterThan(0);
+    }
   });
 
   it('finishes reliably across several seeds', async () => {

@@ -2,6 +2,7 @@ import { SUITS, type Card, type Suit } from './cards';
 import {
   currentPlayerId,
   currentTurnNumber,
+  nextTurnPlayerId,
   pendingImpostorPlayerIds,
   TURNS_PER_ROUND,
   type DrawSource,
@@ -9,8 +10,11 @@ import {
   type GameState,
   type ImpostorRoll,
   type LogEntry,
+  type PendingPrime,
   type RoundResult,
 } from './engine';
+import type { RoundRules } from './evaluate';
+import { SHIFT_TOKENS, type ShiftTokenId } from './tokens';
 
 export interface PlayerView {
   id: string;
@@ -21,6 +25,12 @@ export interface PlayerView {
   /** Own cards always; other players' cards only after the reveal. `null` = face down / no card. */
   hand: { sand: Card | null; blood: Card | null } | null;
   hasHand: boolean;
+  /** Own unplayed shift tokens; always empty for other players (only the count is public). */
+  tokens: ShiftTokenId[];
+  tokenCount: number;
+  immune: boolean;
+  embargoed: boolean;
+  lastAction: 'stand' | 'draw' | null;
 }
 
 export interface PendingDrawView {
@@ -30,7 +40,7 @@ export interface PendingDrawView {
   card: Card | null;
 }
 
-/** Everything one seat is allowed to know. Never contains deck order or hidden cards. */
+/** Everything one seat is allowed to know. Never contains deck order, hidden cards or others' tokens. */
 export interface GameView {
   round: number;
   turnNumber: number;
@@ -38,6 +48,7 @@ export interface GameView {
   phase: GamePhase;
   dealerId: string;
   currentPlayerId: string | null;
+  nextTurnPlayerId: string | null;
   turnOrder: string[];
   players: PlayerView[];
   deckCounts: Record<Suit, number>;
@@ -50,6 +61,11 @@ export interface GameView {
   lastResult: RoundResult | null;
   winnerIds: string[];
   log: LogEntry[];
+  shiftTokensEnabled: boolean;
+  rules: RoundRules;
+  tokenPlayedThisTurn: boolean;
+  freeDraw: boolean;
+  pendingPrime: PendingPrime | null;
 }
 
 export function isRevealPhase(phase: GamePhase): boolean {
@@ -70,6 +86,11 @@ export function toGameView(state: GameState, viewerId: string | null): GameView 
       hand: p.hand
         ? { sand: showAll ? { ...p.hand.sand } : null, blood: showAll ? { ...p.hand.blood } : null }
         : null,
+      tokens: p.id === viewerId ? p.tokens.slice() : [],
+      tokenCount: p.tokens.length,
+      immune: p.immune,
+      embargoed: p.embargoed,
+      lastAction: p.lastAction,
     };
   });
   const pd = state.pendingDraw;
@@ -93,6 +114,7 @@ export function toGameView(state: GameState, viewerId: string | null): GameView 
     phase: state.phase,
     dealerId: state.players[state.dealerIndex]?.id ?? '',
     currentPlayerId: currentPlayerId(state),
+    nextTurnPlayerId: state.phase === 'turn' || state.phase === 'primeChoice' ? nextTurnPlayerId(state) : null,
     turnOrder: state.turnOrder.slice(),
     players,
     deckCounts,
@@ -104,6 +126,11 @@ export function toGameView(state: GameState, viewerId: string | null): GameView 
     lastResult: state.lastResult ? structuredClone(state.lastResult) : null,
     winnerIds: state.winnerIds.slice(),
     log: state.log.slice(-80),
+    shiftTokensEnabled: (state.config.shiftTokens ?? 0) > 0,
+    rules: { ...state.rules },
+    tokenPlayedThisTurn: state.tokenPlayedThisTurn,
+    freeDraw: state.freeDraw,
+    pendingPrime: state.pendingPrime ? structuredClone(state.pendingPrime) : null,
   };
 }
 
@@ -112,4 +139,33 @@ export function viewCanDrawFrom(view: GameView, source: DrawSource): boolean {
   const suit: Suit = source.startsWith('sand') ? 'sand' : 'blood';
   if (source.endsWith('Deck')) return view.deckCounts[suit] > 0 || view.discards[suit].length > 1;
   return view.discards[suit].length > 0;
+}
+
+/** Valid targets for a targeted token, as seen from a view (mirrors engine `tokenTargets`). */
+export function viewTokenTargets(view: GameView, myId: string, token: ShiftTokenId): string[] {
+  const def = SHIFT_TOKENS[token];
+  if (def.target === 'none') return [];
+  return view.turnOrder.filter((id) => {
+    if (id === myId) return false;
+    const p = view.players.find((x) => x.id === id);
+    if (!p || p.immune) return false;
+    return def.target !== 'standingPlayer' || p.lastAction === 'stand';
+  });
+}
+
+/** Why a token can't be played now, as seen from a view (mirrors engine `tokenBlockReason`). */
+export function viewTokenBlockReason(view: GameView, myId: string, token: ShiftTokenId): string | null {
+  const me = view.players.find((p) => p.id === myId);
+  if (!me || !me.tokens.includes(token)) return "You don't have that token";
+  if (view.phase !== 'turn' || view.currentPlayerId !== myId) return 'Play tokens at the start of your turn';
+  if (view.tokenPlayedThisTurn) return 'One token per turn';
+  const def = SHIFT_TOKENS[token];
+  if (def.target !== 'none' && viewTokenTargets(view, myId, token).length === 0) {
+    return def.target === 'standingPlayer' ? 'No player who stood can be targeted' : 'No player can be targeted';
+  }
+  if ((token === 'refund' || token === 'extraRefund') && me.invested === 0) return 'Your pot is empty';
+  if (token === 'freeDraw' && (me.embargoed || view.freeDraw)) return me.embargoed ? 'You must stand (Embargo)' : 'Already active';
+  if (token === 'embargo' && !view.nextTurnPlayerId) return 'No next turn this round';
+  if (token === 'immunity' && me.immune) return 'Already immune';
+  return null;
 }

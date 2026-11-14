@@ -6,6 +6,7 @@ import {
   createRng,
   currentPlayerId,
   decideBotAction,
+  DEFAULT_SHIFT_TOKENS,
   DEFAULT_STARTING_CHIPS,
   DEFAULT_TURN_SECONDS,
   IllegalMoveError,
@@ -14,6 +15,7 @@ import {
   MAX_PLAYERS,
   MIN_PLAYERS,
   nextRound,
+  SHIFT_TOKEN_OPTIONS,
   STARTING_CHIP_OPTIONS,
   timeoutActions,
   toGameView,
@@ -75,7 +77,11 @@ export class Room {
   seats: Seat[] = [];
   hostId: string | null = null;
   status: RoomStatus = 'lobby';
-  settings: RoomSettings = { startingChips: DEFAULT_STARTING_CHIPS, turnSeconds: DEFAULT_TURN_SECONDS };
+  settings: RoomSettings = {
+    startingChips: DEFAULT_STARTING_CHIPS,
+    turnSeconds: DEFAULT_TURN_SECONDS,
+    shiftTokens: DEFAULT_SHIFT_TOKENS,
+  };
   game: GameState | null = null;
   chat: ChatMessage[] = [];
   deadline: number | null = null;
@@ -229,6 +235,10 @@ export class Room {
       if (!(TURN_TIMER_OPTIONS as readonly number[]).includes(patch.turnSeconds)) throw new RoomError('Invalid turn timer');
       this.settings.turnSeconds = patch.turnSeconds;
     }
+    if (patch.shiftTokens !== undefined) {
+      if (!(SHIFT_TOKEN_OPTIONS as readonly number[]).includes(patch.shiftTokens)) throw new RoomError('Invalid shift token count');
+      this.settings.shiftTokens = patch.shiftTokens;
+    }
     this.touch();
   }
 
@@ -264,7 +274,7 @@ export class Room {
     if (this.seats.length < MIN_PLAYERS) throw new RoomError(`At least ${MIN_PLAYERS} players are needed`);
     this.game = createGame(
       this.seats.map((s) => ({ id: s.id, name: s.name })),
-      { startingChips: this.settings.startingChips },
+      { startingChips: this.settings.startingChips, shiftTokens: this.settings.shiftTokens },
       this.rng,
       { firstDealerIndex: Math.floor(this.rng() * this.seats.length) },
     );
@@ -376,7 +386,7 @@ export class Room {
       return;
     }
 
-    if (g.phase === 'turn' || g.phase === 'discard') {
+    if (g.phase === 'turn' || g.phase === 'discard' || g.phase === 'primeChoice') {
       this.nextRoundAt = null;
       const pid = currentPlayerId(g) as string;
       const seat = this.seat(pid);

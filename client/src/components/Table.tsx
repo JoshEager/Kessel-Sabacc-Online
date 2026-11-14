@@ -11,6 +11,7 @@ import { Die } from './Dice';
 import { RoundSummary } from './RoundSummary';
 import { RulesPanel } from './RulesPanel';
 import { SidePanel } from './SidePanel';
+import { PrimeChoicePrompt, RulesBanner, TokenChip, TokenTray } from './Tokens';
 
 type Pos = 'left' | 'top' | 'right';
 const POSITIONS: Record<number, Pos[]> = { 0: [], 1: ['top'], 2: ['left', 'right'], 3: ['left', 'top', 'right'] };
@@ -44,7 +45,7 @@ export function Table({ view, now, onLeave }: { view: RoomView; now: () => numbe
 
   const myTurn = game.currentPlayerId === youId;
   const iDrew = game.phase === 'discard' && game.pendingDraw?.playerId === youId;
-  const canDraw = myTurn && game.phase === 'turn' && !!me && me.chips >= DRAW_COST;
+  const canDraw = myTurn && game.phase === 'turn' && !!me && !me.embargoed && (game.freeDraw || me.chips >= DRAW_COST);
 
   async function act(action: GameAction) {
     if (busy) return;
@@ -147,11 +148,12 @@ export function Table({ view, now, onLeave }: { view: RoomView; now: () => numbe
                 Turn {game.turnNumber} of {game.turnsPerRound}
               </span>
             </div>
+            <TokenTray game={game} youId={youId} busy={busy} act={act} />
             <div className="turn-buttons">
               <button className="btn stand" disabled={busy} onClick={() => act({ type: 'stand' })}>
                 Stand
               </button>
-              <span className="or">or draw for 1 chip:</span>
+              <span className="or">{game.freeDraw ? 'or draw for free:' : 'or draw for 1 chip:'}</span>
               <div className="draw-buttons">
                 {(['sandDeck', 'sandDiscard', 'bloodDiscard', 'bloodDeck'] as DrawSource[]).map((s) => (
                   <button
@@ -165,14 +167,22 @@ export function Table({ view, now, onLeave }: { view: RoomView; now: () => numbe
                 ))}
               </div>
             </div>
-            {me.chips < DRAW_COST && <p className="muted small">You have no chips left to draw — you must stand.</p>}
+            {me.embargoed ? (
+              <p className="muted small">You are under Embargo — you must stand this turn.</p>
+            ) : (
+              me.chips < DRAW_COST &&
+              !game.freeDraw && <p className="muted small">You have no chips left to draw — you must stand.</p>
+            )}
           </div>
-        ) : game.phase === 'turn' || game.phase === 'discard' ? (
+        ) : game.phase === 'primeChoice' && game.pendingPrime?.playerId === youId ? (
+          <p className="status">Choose your Prime Sabacc die…</p>
+        ) : game.phase === 'turn' || game.phase === 'discard' || game.phase === 'primeChoice' ? (
           <p className="status">
             {current ? (
               <>
                 Waiting for <b>{current.name}</b>
-                {game.phase === 'discard' && game.pendingDraw && <> — drew from the {SOURCE_LABEL[game.pendingDraw.source]}</>}…
+                {game.phase === 'discard' && game.pendingDraw && <> — drew from the {SOURCE_LABEL[game.pendingDraw.source]}</>}
+                {game.phase === 'primeChoice' && <> — choosing a Prime Sabacc value</>}…
               </>
             ) : (
               'Waiting…'
@@ -184,6 +194,7 @@ export function Table({ view, now, onLeave }: { view: RoomView; now: () => numbe
       </footer>
 
       {game.phase === 'impostor' && <ImpostorPrompt game={game} youId={youId} deadline={view.deadline} now={now} />}
+      <PrimeChoicePrompt game={game} youId={youId} deadline={view.deadline} now={now} />
       {(game.phase === 'roundEnd' || game.phase === 'gameOver') && game.lastResult && (
         <RoundSummary view={view} now={now} onLeave={onLeave} />
       )}
@@ -263,6 +274,33 @@ function Seat({
         {seat && !seat.isBot && !seat.connected && <span className="badge off">offline</span>}
       </div>
 
+      {game.shiftTokensEnabled && !p.eliminated && (
+        <div className="seat-status">
+          {isYou ? (
+            p.tokens.map((t) => <TokenChip key={t} id={t} compact />)
+          ) : (
+            <span className="token-count" title={`${p.tokenCount} shift token${p.tokenCount === 1 ? '' : 's'} left`}>
+              <span className="hex-mini" />×{p.tokenCount}
+            </span>
+          )}
+          {p.immune && (
+            <span className="badge immune" title="Immune to other players' tokens until the reveal">
+              Immune
+            </span>
+          )}
+          {p.embargoed && (
+            <span className="badge embargo" title="Must stand on their next turn">
+              Embargo
+            </span>
+          )}
+          {p.lastAction === 'stand' && !game.revealed && (
+            <span className="badge stood" title="Stood on their last turn (can be audited)">
+              Stood
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="seat-cards">
         {p.eliminated && !p.hasHand ? (
           <span className="out-tag">Eliminated</span>
@@ -319,6 +357,15 @@ function Seat({
 }
 
 function Center({ game, canDraw, onDraw }: { game: GameView; canDraw: boolean; onDraw: (s: DrawSource) => void }) {
+  return (
+    <div className="table-center-wrap">
+      <RulesBanner rules={game.rules} freeDraw={game.freeDraw} />
+      <CenterPiles game={game} canDraw={canDraw} onDraw={onDraw} />
+    </div>
+  );
+}
+
+function CenterPiles({ game, canDraw, onDraw }: { game: GameView; canDraw: boolean; onDraw: (s: DrawSource) => void }) {
   return (
     <div className="table-center">
       {SUITS.map((suit) => {
@@ -494,6 +541,9 @@ function useGameSounds(game: GameView, youId: string, view: RoomView) {
       }
     }
     if (game.phase === 'impostor' && g0.phase !== 'impostor') play('dice');
+    if (game.phase === 'primeChoice' && g0.phase !== 'primeChoice') play('dice');
+    const lastSeq = g0.log.at(-1)?.seq ?? 0;
+    if (game.log.some((l) => l.seq > lastSeq && l.kind === 'token' && / plays /.test(l.text))) play('token');
     if (game.currentPlayerId === youId && game.phase === 'turn' && (g0.currentPlayerId !== youId || g0.phase !== 'turn')) play('turn');
     if ((game.phase === 'roundEnd' || game.phase === 'gameOver') && g0.phase !== game.phase && game.lastResult) {
       const mine = game.lastResult.hands.find((h) => h.playerId === youId);

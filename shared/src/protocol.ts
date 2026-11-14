@@ -5,12 +5,15 @@ import type { GameView } from './view';
 export const TURN_TIMER_OPTIONS = [15, 30, 45, 60, 90] as const;
 export const DEFAULT_TURN_SECONDS = 30;
 export const DEFAULT_STARTING_CHIPS = 8;
+export const DEFAULT_SHIFT_TOKENS = 0;
 export const MAX_NAME_LENGTH = 20;
 export const MAX_CHAT_LENGTH = 300;
 
 export interface RoomSettings {
   startingChips: number;
   turnSeconds: number;
+  /** Random shift tokens dealt to each player (0 = off). */
+  shiftTokens: number;
 }
 
 export interface SeatView {

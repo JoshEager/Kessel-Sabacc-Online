@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { MAX_PLAYERS, MIN_PLAYERS, STARTING_CHIP_OPTIONS } from '../../../shared/src/engine';
 import { TURN_TIMER_OPTIONS, type RoomView } from '../../../shared/src/protocol';
+import { SHIFT_TOKEN_OPTIONS } from '../../../shared/src/tokens';
 import { request, roomLink } from '../net';
 import { ChatBox } from './SidePanel';
 import { RulesPanel } from './RulesPanel';
@@ -124,6 +125,20 @@ export function Lobby({ view, onLeave }: { view: RoomView; onLeave: () => void }
                 {TURN_TIMER_OPTIONS.map((n) => (
                   <option key={n} value={n}>
                     {n} seconds
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Shift tokens</span>
+              <select
+                value={view.settings.shiftTokens}
+                disabled={!isHost}
+                onChange={(e) => run('room:settings', { shiftTokens: Number(e.target.value) })}
+              >
+                {SHIFT_TOKEN_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n === 0 ? 'Off' : `${n} random per player`}
                   </option>
                 ))}
               </select>

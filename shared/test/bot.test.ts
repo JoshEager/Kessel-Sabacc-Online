@@ -46,10 +46,10 @@ describe('normal bot', () => {
 
   it('only ever chooses legal moves (both levels, many seeds)', () => {
     for (const level of ['easy', 'normal'] as const) {
-      for (let seed = 0; seed < 30; seed++) {
-        let s = createGame(players(4), { startingChips: 4 }, createRng(seed));
+      for (let seed = 0; seed < 60; seed++) {
+        let s = createGame(players(4), { startingChips: 4, shiftTokens: seed % 4 }, createRng(seed));
         const rng = createRng(seed + 1000);
-        for (let step = 0; step < 40 && (s.phase === 'turn' || s.phase === 'discard' || s.phase === 'impostor'); step++) {
+        for (let step = 0; step < 80 && ['turn', 'discard', 'primeChoice', 'impostor'].includes(s.phase); step++) {
           const actor =
             s.phase === 'impostor'
               ? Object.keys(s.impostorRolls).find((id) => legalActions(s, id).length > 0)!
@@ -60,5 +60,67 @@ describe('normal bot', () => {
         }
       }
     }
+  });
+});
+
+describe('bots and shift tokens', () => {
+  function myTurn(tokens: import('../src/tokens').ShiftTokenId[]) {
+    const s = createGame(players(3), { startingChips: 8, shiftTokens: 0 }, createRng(9));
+    const me = currentPlayerId(s) as string;
+    const p = s.players.find((x) => x.id === me)!;
+    p.tokens = tokens;
+    return { s, me, p };
+  }
+
+  it('cashes in a Refund once two chips are in the pot', () => {
+    const { s, me, p } = myTurn(['refund']);
+    p.invested = 2;
+    p.chips = 6;
+    expect(decideBotAction(toGameView(s, me), me, 'normal', createRng(1))).toEqual({ type: 'playToken', token: 'refund' });
+  });
+
+  it('plays Major Fraud holding an Impostor and a 6', () => {
+    const { s, me, p } = myTurn(['majorFraud']);
+    p.hand = { sand: c('S', 'I'), blood: c('B', 6) };
+    expect(decideBotAction(toGameView(s, me), me, 'normal', createRng(1))).toEqual({ type: 'playToken', token: 'majorFraud' });
+  });
+
+  it('plays Cook the Books holding a high pair', () => {
+    const { s, me, p } = myTurn(['cookTheBooks']);
+    p.hand = { sand: c('S', 5), blood: c('B', 5) };
+    expect(decideBotAction(toGameView(s, me), me, 'normal', createRng(1))).toEqual({ type: 'playToken', token: 'cookTheBooks' });
+  });
+
+  it('must stand under Embargo and still never plays a token twice in a turn', () => {
+    const { s, me, p } = myTurn(['generalTariff']);
+    p.embargoed = true;
+    s.tokenPlayedThisTurn = true;
+    expect(decideBotAction(toGameView(s, me), me, 'normal', createRng(1))).toEqual({ type: 'stand' });
+  });
+
+  it('picks the Prime Sabacc die matching its pair', () => {
+    const { s, me, p } = myTurn([]);
+    p.hand = { sand: c('S', 3), blood: c('B', 3) };
+    s.phase = 'primeChoice';
+    s.pendingPrime = { playerId: me, dice: [6, 3] };
+    expect(decideBotAction(toGameView(s, me), me, 'normal', createRng(1))).toEqual({ type: 'choosePrime', choice: 1 });
+  });
+
+  it('actually uses tokens over many games', () => {
+    let played = 0;
+    for (let seed = 0; seed < 20; seed++) {
+      let s = createGame(players(4), { startingChips: 8, shiftTokens: 3 }, createRng(seed));
+      const rng = createRng(seed + 7);
+      for (let step = 0; step < 60 && ['turn', 'discard', 'primeChoice', 'impostor'].includes(s.phase); step++) {
+        const actor =
+          s.phase === 'impostor'
+            ? Object.keys(s.impostorRolls).find((id) => legalActions(s, id).length > 0)!
+            : (currentPlayerId(s) as string);
+        const action = decideBotAction(toGameView(s, actor), actor, 'normal', rng) as GameAction;
+        if (action.type === 'playToken') played++;
+        s = applyAction(s, actor, action, rng);
+      }
+    }
+    expect(played).toBeGreaterThan(20);
   });
 });

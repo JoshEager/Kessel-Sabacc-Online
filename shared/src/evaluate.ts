@@ -5,6 +5,21 @@ export type HandCategory = 'pure' | 'prime' | 'sabacc' | 'none';
 /** Lexicographic rank: lower is better at every position. */
 export type RankTuple = [number, number, number];
 
+/**
+ * Round-wide rule changes made by shift tokens. They last until the next reveal.
+ * All fields are optional; `{}` means the standard rules.
+ */
+export interface RoundRules {
+  /** Cook the Books: Sabacc pair ranks are inverted (6s best … 1s worst). */
+  cookTheBooks?: boolean;
+  /** Markdown: a Sylop is worth 0 instead of copying the other card. */
+  markdown?: boolean;
+  /** Major Fraud: every Impostor is worth 6 (no dice are rolled). */
+  majorFraud?: boolean;
+  /** Prime Sabacc token: a pair of this value is the best Sabacc (below Pure Sabacc). */
+  primeValue?: number | null;
+}
+
 export interface ResolvedHand {
   /** Final value used for each card after Impostor / Sylop resolution (0 for Pure Sabacc). */
   sandValue: number;
@@ -24,9 +39,18 @@ export interface ResolvedHand {
 /** Values chosen for Impostor cards, by suit. */
 export type ImpostorValues = Partial<Record<Suit, number>>;
 
-function baseValue(card: Card, imp: ImpostorValues): number | null {
+export const MAJOR_FRAUD_VALUE = 6;
+
+/** The pair value that counts as the best ("Prime") Sabacc under the given rules. */
+export function bestPairValue(rules: RoundRules = {}): number {
+  if (rules.primeValue) return rules.primeValue;
+  return rules.cookTheBooks ? 6 : 1;
+}
+
+function baseValue(card: Card, imp: ImpostorValues, rules: RoundRules): number | null {
   if (card.kind === 'number') return card.value;
   if (card.kind === 'impostor') {
+    if (rules.majorFraud) return MAJOR_FRAUD_VALUE;
     const v = imp[card.suit];
     if (v === undefined || !Number.isInteger(v) || v < 1 || v > 6) {
       throw new Error(`Impostor in ${card.suit} needs a chosen value 1–6`);
@@ -36,19 +60,26 @@ function baseValue(card: Card, imp: ImpostorValues): number | null {
   return null; // Sylop
 }
 
+/** Rank position of a Sabacc pair (lower is better) under the given rules. */
+function pairRank(v: number, rules: RoundRules): number {
+  if (rules.primeValue && v === rules.primeValue) return 0;
+  return rules.cookTheBooks ? 7 - v : v;
+}
+
 /**
  * Resolves a 1 Sand + 1 Blood hand into its final values, category and rank.
- * Impostor values must be supplied for every Impostor in the hand.
+ * Impostor values must be supplied for every Impostor in the hand (unless Major Fraud is active).
  */
-export function resolveHand(sand: Card, blood: Card, imp: ImpostorValues = {}): ResolvedHand {
+export function resolveHand(sand: Card, blood: Card, imp: ImpostorValues = {}, rules: RoundRules = {}): ResolvedHand {
   if (sand.suit !== 'sand' || blood.suit !== 'blood') {
     throw new Error('A hand must be exactly one Sand card and one Blood card');
   }
   const notes: string[] = [];
-  let s = baseValue(sand, imp);
-  let b = baseValue(blood, imp);
-  if (sand.kind === 'impostor') notes.push(`Sand Impostor chose ${s}`);
-  if (blood.kind === 'impostor') notes.push(`Blood Impostor chose ${b}`);
+  let s = baseValue(sand, imp, rules);
+  let b = baseValue(blood, imp, rules);
+  const impNote = rules.majorFraud ? 'is worth 6 (Major Fraud)' : 'chose';
+  if (sand.kind === 'impostor') notes.push(rules.majorFraud ? `Sand Impostor ${impNote}` : `Sand Impostor chose ${s}`);
+  if (blood.kind === 'impostor') notes.push(rules.majorFraud ? `Blood Impostor ${impNote}` : `Blood Impostor chose ${b}`);
 
   if (s === null && b === null) {
     notes.push('Two Sylops');
@@ -66,16 +97,16 @@ export function resolveHand(sand: Card, blood: Card, imp: ImpostorValues = {}): 
     };
   }
   if (s === null) {
-    s = b as number;
-    notes.push(`Sand Sylop copies ${s}`);
+    s = rules.markdown ? 0 : (b as number);
+    notes.push(rules.markdown ? 'Sand Sylop is worth 0 (Markdown)' : `Sand Sylop copies ${s}`);
   }
   if (b === null) {
-    b = s;
-    notes.push(`Blood Sylop copies ${b}`);
+    b = rules.markdown ? 0 : s;
+    notes.push(rules.markdown ? 'Blood Sylop is worth 0 (Markdown)' : `Blood Sylop copies ${b}`);
   }
 
   if (s === b) {
-    const prime = s === 1;
+    const prime = s === bestPairValue(rules);
     return {
       sandValue: s,
       bloodValue: b,
@@ -84,8 +115,8 @@ export function resolveHand(sand: Card, blood: Card, imp: ImpostorValues = {}): 
       pairValue: s,
       difference: 0,
       sum: s + b,
-      rank: [1, s, 0],
-      label: prime ? 'Prime Sabacc' : `Sabacc (pair of ${s}s)`,
+      rank: [1, pairRank(s, rules), 0],
+      label: prime ? (s === 1 ? 'Prime Sabacc' : `Prime Sabacc (pair of ${s}s)`) : `Sabacc (pair of ${s}s)`,
       notes,
     };
   }
@@ -157,9 +188,10 @@ export function bestImpostorChoices(
   blood: Card,
   rolls: Partial<Record<Suit, DicePair>>,
   fixed: Partial<Record<Suit, ImpostorChoiceIndex>> = {},
+  rules: RoundRules = {},
 ): Partial<Record<Suit, ImpostorChoiceIndex>> {
   const options = (suit: Suit, card: Card): (ImpostorChoiceIndex | undefined)[] => {
-    if (card.kind !== 'impostor') return [undefined];
+    if (card.kind !== 'impostor' || !rolls[suit]) return [undefined];
     const f = fixed[suit];
     if (f !== undefined) return [f];
     return [0, 1];
@@ -171,7 +203,7 @@ export function bestImpostorChoices(
       const imp: ImpostorValues = {};
       if (sc !== undefined) imp.sand = (rolls.sand as DicePair)[sc];
       if (bc !== undefined) imp.blood = (rolls.blood as DicePair)[bc];
-      const r = resolveHand(sand, blood, imp).rank;
+      const r = resolveHand(sand, blood, imp, rules).rank;
       if (bestRank === null || compareRank(r, bestRank) < 0) {
         bestRank = r;
         best = {};

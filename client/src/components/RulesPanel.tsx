@@ -1,4 +1,6 @@
 import { useEffect } from 'react';
+import { ALL_TOKEN_IDS, SHIFT_TOKENS } from '../../../shared/src/tokens';
+import { TokenChip } from './Tokens';
 
 export function RulesPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   useEffect(() => {
@@ -83,6 +85,26 @@ export function RulesPanel({ open, onClose }: { open: boolean; onClose: () => vo
               </li>
               <li>A player with 0 chips is eliminated. The dealer button moves one seat clockwise each round.</li>
             </ul>
+          </section>
+          <section>
+            <h3>Shift tokens (optional)</h3>
+            <p>
+              If the host turns them on, each player gets 1–3 random tokens for the whole game. Each token can be used once.
+              You may play <b>one token per turn</b>, before you stand or draw. Your tokens are hidden from others; everyone
+              sees when one is played. Taxed chips go into the taxed player&apos;s own pot, so they come back if that player
+              wins the round. Rule changes and Immunity last until the reveal.
+            </p>
+            <ul className="token-rules">
+              {ALL_TOKEN_IDS.map((id) => (
+                <li key={id}>
+                  <TokenChip id={id} compact /> <b>{SHIFT_TOKENS[id].name}</b> — {SHIFT_TOKENS[id].text}
+                </li>
+              ))}
+            </ul>
+            <p className="small">
+              Immunity blocks taxes, Embezzlement, Embargo and targeting by other players, but not rule changes (Major Fraud,
+              Cook the Books, Markdown, Prime Sabacc).
+            </p>
           </section>
         </div>
       </aside>
