@@ -51,6 +51,23 @@ export function Table({ view, now, onLeave }: { view: RoomView; now: () => numbe
   const iDrew = game.phase === 'discard' && game.pendingDraw?.playerId === youId;
   const canDraw = myTurn && game.phase === 'turn' && !!me && !me.embargoed && (game.freeDraw || me.chips >= DRAW_COST);
 
+
+  // On small screens with many players, your own seat can be scrolled out of view: bring it back
+  // into view whenever your turn starts.
+  const feltRef = useRef<HTMLElement>(null);
+  const myTurnNow = myTurn && game.phase === 'turn';
+  useEffect(() => {
+    if (!myTurnNow) return;
+    // Wait a moment: the turn controls appear at the same time and shrink the table area.
+    const t = setTimeout(() => {
+      const felt = feltRef.current;
+      const mine = felt?.querySelector<HTMLElement>('.seat.you');
+      if (!felt || !mine || felt.scrollHeight <= felt.clientHeight + 4) return;
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      mine.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
+    }, 250);
+    return () => clearTimeout(t);
+  }, [myTurnNow, game.round, game.turnNumber]);
   async function act(action: GameAction) {
     if (busy) return;
     setBusy(true);
@@ -110,7 +127,7 @@ export function Table({ view, now, onLeave }: { view: RoomView; now: () => numbe
       </header>
 
       <div className="game-body">
-        <main className={`felt seats-${others.length} ${many ? 'many' : ''}`}>
+        <main ref={feltRef} className={`felt seats-${others.length} ${many ? 'many' : ''}`}>
           {(() => {
             const seats = others.map((p, i) => (
               <Seat
@@ -288,6 +305,7 @@ function Seat({
         winner ? 'winner' : ''
       }`}
       aria-label={`${p.name}${isYou ? ' (you)' : ''}`}
+      title={seat?.isBot ? `${p.name} (${seat.botLevel} bot)` : undefined}
     >
       <div className="seat-head">
         {isCurrent && <CountdownRing deadline={deadline} total={turnSeconds} now={now} size={26} />}

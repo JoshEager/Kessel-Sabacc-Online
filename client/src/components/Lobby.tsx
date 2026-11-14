@@ -111,8 +111,8 @@ export function Lobby({ view, onLeave }: { view: RoomView; onLeave: () => void }
                 disabled={!isHost}
                 onChange={(e) => run('room:settings', { isPublic: e.target.value === 'public' })}
               >
-                <option value="private">Private (code or link)</option>
-                <option value="public">Public (listed for anyone)</option>
+                <option value="private">Private</option>
+                <option value="public">Public</option>
               </select>
             </label>
             <label className="field">
@@ -179,7 +179,7 @@ export function Lobby({ view, onLeave }: { view: RoomView; onLeave: () => void }
                 onChange={(e) => run('room:settings', { cheats: e.target.value === 'on' })}
               >
                 <option value="off">Off</option>
-                <option value="on">On (Peek, Double Draw, Magnetic Dice)</option>
+                <option value="on">On</option>
               </select>
             </label>
           </div>
