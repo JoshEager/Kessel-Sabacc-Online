@@ -3,6 +3,7 @@ import { MAX_NAME_LENGTH } from '../../../shared/src/protocol';
 import { codeFromUrl, loadName, randomName, request, saveName, saveSession } from '../net';
 import { CardFace } from './Card';
 import { RulesPanel } from './RulesPanel';
+import { NO_AUTOFILL } from '../noAutofill';
 import { useInstall } from '../pwa';
 
 export function Home({ notice, clearNotice }: { notice: string | null; clearNotice: () => void }) {
@@ -57,13 +58,13 @@ export function Home({ notice, clearNotice }: { notice: string | null; clearNoti
       </h1>
       <p className="tagline">Two suits. Three turns. Lowest difference wins — unless someone pairs up.</p>
 
-      <form className="panel home-form" onSubmit={(e) => go(urlCode ? 'join' : 'create', e)}>
+      <form className="panel home-form" autoComplete="off" data-bwignore="true" onSubmit={(e) => go(urlCode ? 'join' : 'create', e)}>
         <label className="field">
           <span>Display name</span>
           <input
+            {...NO_AUTOFILL}
             value={name}
             maxLength={MAX_NAME_LENGTH}
-            autoComplete="nickname"
             placeholder={namePlaceholder}
             onChange={(e) => setName(e.target.value)}
           />
@@ -79,6 +80,7 @@ export function Home({ notice, clearNotice }: { notice: string | null; clearNoti
           <label className="field grow">
             <span>{urlCode ? 'You were invited to room' : 'Or join with a code'}</span>
             <input
+              {...NO_AUTOFILL}
               value={code}
               maxLength={8}
               placeholder="ABCDE"

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { LogEntry } from '../../../shared/src/engine';
 import { MAX_CHAT_LENGTH, type ChatMessage } from '../../../shared/src/protocol';
 import { request } from '../net';
+import { NO_AUTOFILL } from '../noAutofill';
 
 export function ChatBox({ chat, youId }: { chat: ChatMessage[]; youId: string | null }) {
   const [text, setText] = useState('');
@@ -35,8 +36,9 @@ export function ChatBox({ chat, youId }: { chat: ChatMessage[]; youId: string | 
           ),
         )}
       </div>
-      <form className="chat-form" onSubmit={send}>
+      <form className="chat-form" autoComplete="off" data-bwignore="true" onSubmit={send}>
         <input
+          {...NO_AUTOFILL}
           value={text}
           maxLength={MAX_CHAT_LENGTH}
           placeholder="Say something…"
