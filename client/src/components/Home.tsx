@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { MAX_NAME_LENGTH } from '../../../shared/src/protocol';
-import { codeFromUrl, loadName, request, saveName, saveSession } from '../net';
+import { codeFromUrl, loadName, randomName, request, saveName, saveSession } from '../net';
 import { CardFace } from './Card';
 import { RulesPanel } from './RulesPanel';
 import { useInstall } from '../pwa';
@@ -8,6 +8,7 @@ import { useInstall } from '../pwa';
 export function Home({ notice, clearNotice }: { notice: string | null; clearNotice: () => void }) {
   const urlCode = codeFromUrl();
   const [name, setName] = useState(loadName);
+  const [namePlaceholder] = useState(randomName);
   const [code, setCode] = useState(urlCode ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,7 +64,7 @@ export function Home({ notice, clearNotice }: { notice: string | null; clearNoti
             value={name}
             maxLength={MAX_NAME_LENGTH}
             autoComplete="nickname"
-            placeholder="e.g. Rook"
+            placeholder={namePlaceholder}
             onChange={(e) => setName(e.target.value)}
           />
         </label>

@@ -57,6 +57,15 @@ export function loadSession(): Session | null {
 export function saveSession(s: Session | null): void {
   safeSet(SESSION_KEY, s ? JSON.stringify(s) : null);
 }
+const NAME_WORDS = ['player', 'pilot', 'gambler', 'smuggler', 'drifter', 'rogue', 'ace', 'captain', 'scoundrel', 'dealer'];
+
+/** A generic example name like "pilot67", shown as the name box placeholder. */
+export function randomName(): string {
+  const word = NAME_WORDS[Math.floor(Math.random() * NAME_WORDS.length)];
+  return `${word}${10 + Math.floor(Math.random() * 90)}`;
+}
+
+/** The saved display name, or empty if this browser has none yet. */
 export function loadName(): string {
   return safeGet(NAME_KEY) ?? '';
 }
