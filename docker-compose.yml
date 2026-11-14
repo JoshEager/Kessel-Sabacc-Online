@@ -6,6 +6,11 @@
 # in .env and start the bundled Caddy proxy, which gets a Let's Encrypt certificate itself:
 #   docker compose --profile https up -d --build
 #
+# Or run a Tailscale sidecar that joins your tailnet as its own machine and serves the game
+# at https://<TS_HOSTNAME>.<tailnet>.ts.net, public via Tailscale Funnel by default
+# (set TS_AUTHKEY in .env; no ports to open):
+#   docker compose --profile tailscale up -d --build
+#
 # Game state lives in memory: run a single instance. Restarting ends games in progress.
 
 services:
@@ -39,6 +44,30 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 
+  tailscale:
+    image: tailscale/tailscale:stable
+    profiles: ["tailscale"]
+    restart: unless-stopped
+    depends_on:
+      - app
+    hostname: ${TS_HOSTNAME:-sabacc}
+    environment:
+      # Auth key from https://login.tailscale.com/admin/settings/keys. Only needed the first
+      # time: the node identity is kept in the tailscale_state volume. If empty, the login URL
+      # is printed in `docker compose logs tailscale`.
+      TS_AUTHKEY: ${TS_AUTHKEY:-}
+      TS_HOSTNAME: ${TS_HOSTNAME:-sabacc}
+      TS_STATE_DIR: /var/lib/tailscale
+      # Userspace networking: no /dev/net/tun or extra privileges needed.
+      TS_USERSPACE: "true"
+      # funnel.json (default) = public on the internet via Tailscale Funnel; serve.json = tailnet only.
+      TS_SERVE_CONFIG: /config/${TS_SERVE_CONFIG_FILE:-funnel.json}
+      TS_EXTRA_ARGS: ${TS_EXTRA_ARGS:-}
+    volumes:
+      - ./tailscale:/config:ro
+      - tailscale_state:/var/lib/tailscale
+
 volumes:
   caddy_data:
   caddy_config:
+  tailscale_state:

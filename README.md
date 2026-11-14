@@ -88,7 +88,18 @@ It's a single stateful service: rooms live in memory, so run **one instance**, a
 
 Phones only offer to install a PWA from an **HTTPS** site (plain `http://localhost` also works, for testing on the same machine). Pick one:
 
-- **Tailscale (private, for your tailnet):** with HTTPS certificates enabled for the tailnet, run the command below on the Docker host. The game is then at `https://<machine>.<tailnet>.ts.net` for every device on your tailnet.
+- **Tailscale sidecar (nothing installed on the host, no ports to open):** the `tailscale` profile starts a Tailscale container next to the game. It joins your tailnet as its own machine and serves the game over HTTPS. By default it is also public on the internet through Tailscale Funnel. Steps:
+  1. In the Tailscale admin console, turn on MagicDNS and HTTPS certificates, and allow Funnel for the node (the `funnel` node attribute in the tailnet policy file; the admin console offers to add it).
+  2. Create an auth key and set `TS_AUTHKEY=tskey-auth-...` in `.env`. You can also leave it empty and open the login URL from `docker compose logs tailscale`.
+  3. Start it:
+
+     ```bash
+     docker compose --profile tailscale up -d --build
+     ```
+
+  The game is then at `https://sabacc.<tailnet>.ts.net` (change the name with `TS_HOSTNAME`). The node identity is kept in a Docker volume, so the key is only needed the first time. To keep it private to your tailnet instead, set `TS_SERVE_CONFIG_FILE=serve.json`. The serve configs are in `tailscale/`. Optionally set `APP_PORT=127.0.0.1:3001` so the game is only reachable through Tailscale.
+
+- **Tailscale on the host:** if the Docker host already runs Tailscale, enable HTTPS certificates for the tailnet and run the command below. The game is then at `https://<machine>.<tailnet>.ts.net`.
 
   ```bash
   tailscale serve --bg 3001
