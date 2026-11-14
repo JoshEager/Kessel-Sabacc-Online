@@ -4,7 +4,7 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import path from 'node:path';
 import express from 'express';
 import { Server, type Socket } from 'socket.io';
-import type { Ack, ClientToServerEvents, ServerToClientEvents } from '../../shared/src/index';
+import type { Ack, ClientToServerEvents, RoomSummary, ServerToClientEvents } from '../../shared/src/index';
 import { DEFAULT_TIMING, Room, RoomError, type RoomTiming } from './room';
 
 interface SocketData {
@@ -18,6 +18,11 @@ type KSocket = Socket<ClientToServerEvents, ServerToClientEvents, object, Socket
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const ROOM_IDLE_MS = 30 * 60 * 1000;
 const ROOM_EMPTY_MS = 10 * 60 * 1000;
+/** Socket.IO room for clients watching the public games list. */
+const LIST_CHANNEL = 'public-list';
+/** Coalesce public list updates: at most one broadcast per this many ms. */
+const LIST_THROTTLE_MS = 500;
+const MAX_LISTED_ROOMS = 50;
 
 export interface ServerOptions {
   port?: number;
@@ -75,7 +80,26 @@ export async function startServer(opts: ServerOptions = {}): Promise<KesselServe
     });
   }
 
+  /** Public rooms with someone connected: joinable lobbies first, then games in progress. */
+  function publicRooms(): RoomSummary[] {
+    return [...rooms.values()]
+      .filter((r) => r.settings.isPublic && r.humansConnected() > 0)
+      .sort((a, b) => Number(b.summary().joinable) - Number(a.summary().joinable) || b.createdAt - a.createdAt)
+      .slice(0, MAX_LISTED_ROOMS)
+      .map((r) => r.summary());
+  }
+
+  let listTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleListUpdate(): void {
+    if (listTimer) return;
+    listTimer = setTimeout(() => {
+      listTimer = null;
+      if ((io.sockets.adapter.rooms.get(LIST_CHANNEL)?.size ?? 0) > 0) io.to(LIST_CHANNEL).emit('lobby:rooms', publicRooms());
+    }, LIST_THROTTLE_MS);
+  }
+
   function broadcast(room: Room): void {
+    scheduleListUpdate();
     const set = sockets.get(room.code);
     if (!set) return;
     for (const s of set) s.emit('room:state', room.viewFor(s.data.seatId ?? null));
@@ -97,6 +121,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<KesselServe
     if (!set) sockets.set(room.code, (set = new Set()));
     set.add(socket);
     socket.join(room.code);
+    socket.leave(LIST_CHANNEL); // in a room now, so stop list updates
     emptySince.delete(room.code);
   }
 
@@ -138,11 +163,12 @@ export async function startServer(opts: ServerOptions = {}): Promise<KesselServe
       handle(ack, () => {
         const code = newCode();
         const room = new Room(code, broadcast, timing);
+        if (p?.isPublic === true) room.settings.isPublic = true;
         rooms.set(code, room);
         const seat = room.addHuman(p?.name);
         attach(socket, room, seat.id);
         broadcast(room);
-        log(`room ${code} created`);
+        log(`room ${code} created (${room.settings.isPublic ? 'public' : 'private'})`);
         return { code, token: seat.token as string };
       }),
     );
@@ -170,6 +196,28 @@ export async function startServer(opts: ServerOptions = {}): Promise<KesselServe
         room.setConnected(seat.id, true);
         broadcast(room);
         return { code };
+      }),
+    );
+
+    socket.on('room:peek', (p, ack) =>
+      handle(ack, () => {
+        const room = rooms.get(String(p?.code ?? '').trim().toUpperCase());
+        if (!room) throw new RoomError('No room with that code');
+        return { room: room.summary() };
+      }),
+    );
+
+    socket.on('lobby:watch', (ack) =>
+      handle(ack, () => {
+        socket.join(LIST_CHANNEL);
+        return { rooms: publicRooms() };
+      }),
+    );
+
+    socket.on('lobby:unwatch', (ack) =>
+      handle(ack, () => {
+        socket.leave(LIST_CHANNEL);
+        return {};
       }),
     );
 
@@ -281,6 +329,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<KesselServe
         sockets.delete(code);
         emptySince.delete(code);
         log(`room ${code} closed`);
+        scheduleListUpdate();
       }
     }
   }, 60_000);
@@ -300,6 +349,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<KesselServe
     port,
     close: async () => {
       clearInterval(sweeper);
+      if (listTimer) clearTimeout(listTimer);
       for (const r of rooms.values()) r.close();
       await new Promise<void>((resolve) => io.close(() => resolve()));
     },

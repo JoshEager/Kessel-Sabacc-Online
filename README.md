@@ -6,8 +6,8 @@ This is an unofficial fan project. All card art, symbols and UI are original CSS
 
 ## Features
 
-- Private rooms with a short code and a share link (`/?r=CODE`), 2–4 seats
-- The host sets starting chips (4/6/8/10), the turn timer (15–90s, default 30s) and shift tokens (off, or 1–3 random per player), adds or removes Easy/Normal bots, and starts the game
+- Public tables listed in a live browser that anyone can join, and private rooms that need the code or share link (`/?r=CODE`); 2–4 seats
+- The host sets visibility (public or private), starting chips (4/6/8/10), the turn timer (15–90s, default 30s) and shift tokens (off, or 1–3 random per player), adds or removes Easy/Normal bots, and starts the game
 - All 16 shift tokens from the game, with targeting, a banner for active rule changes, and bots that use them
 - An authoritative server: all shuffling, dealing, dice and rule checks happen on the server, and clients never receive hidden cards or deck order
 - Reconnects after a refresh (the session token is kept in `localStorage`); a disconnected or timed-out player automatically stands
@@ -151,22 +151,23 @@ These are the cases the brief left open, and how this version handles them:
 10. **Leaving:** leaving in the lobby frees the seat. Leaving mid-game keeps the seat on autopilot (always standing) and it can't be reclaimed. Players who left are dropped on rematch.
 11. **Between rounds:** the summary stays up until every connected player still in the game presses Next round, or 15 seconds pass.
 12. **Host handoff:** if the host disconnects, the next connected human becomes host.
+13. **Public tables:** the public list shows public rooms that have at least one connected player. Lobbies with an open seat come first and can be joined; full lobbies and games in progress are listed but can't be joined, since players can't join mid-game. The host can switch a room between public and private any time in the lobby. Invite links (`/?r=CODE`) work the same for both and show the table's host, seats and settings before you join.
 
 ### Shift tokens
 
 The token list and effect text follow the *Star Wars Outlaws* tokens (16 in total). The game doesn't spell out every detail, so these are the choices made here:
 
-13. **Dealing:** when enabled, each player gets 1–3 random tokens at the start of the game, with no duplicates in one player's set (two players can hold the same token). Each token is single use for the whole game, and a rematch deals new ones. The setting is **off by default**.
-14. **Timing:** you can play **one token per turn**, before you stand or draw. Playing a token doesn't use up your turn.
-15. **Privacy:** your tokens are hidden from other players, but they see how many you have left. Every token play is public and logged.
-16. **Where taxed chips go:** Tariffs and Audits move chips from the taxed player's stack into **their own pot**. They lose those chips if they lose the round and get them back if they win. A player who can't pay the full amount pays what they have.
-17. **Refund / Extra Refund** move up to 2 / 3 chips from your pot back to your stack, and can only be played when your pot isn't empty. **Embezzlement** takes 1 chip from each other player's pot (if they have one) and puts it in yours.
-18. **"In stand"** (the Audits) means the player's most recent action this round was to stand.
-19. **Embargo** applies to whoever takes the next turn this round, and only for that turn. It can't be played on the round's last turn. An embargoed player may still play a token.
-20. **Immunity** lasts until the reveal. It blocks taxes, Embezzlement, Embargo and being targeted, but not rule changes.
-21. **Rule changes last until the reveal:**
+14. **Dealing:** when enabled, each player gets 1–3 random tokens at the start of the game, with no duplicates in one player's set (two players can hold the same token). Each token is single use for the whole game, and a rematch deals new ones. The setting is **off by default**.
+15. **Timing:** you can play **one token per turn**, before you stand or draw. Playing a token doesn't use up your turn.
+16. **Privacy:** your tokens are hidden from other players, but they see how many you have left. Every token play is public and logged.
+17. **Where taxed chips go:** Tariffs and Audits move chips from the taxed player's stack into **their own pot**. They lose those chips if they lose the round and get them back if they win. A player who can't pay the full amount pays what they have.
+18. **Refund / Extra Refund** move up to 2 / 3 chips from your pot back to your stack, and can only be played when your pot isn't empty. **Embezzlement** takes 1 chip from each other player's pot (if they have one) and puts it in yours.
+19. **"In stand"** (the Audits) means the player's most recent action this round was to stand.
+20. **Embargo** applies to whoever takes the next turn this round, and only for that turn. It can't be played on the round's last turn. An embargoed player may still play a token.
+21. **Immunity** lasts until the reveal. It blocks taxes, Embezzlement, Embargo and being targeted, but not rule changes.
+22. **Rule changes last until the reveal:**
     - **Major Fraud** makes every Impostor worth 6 with no dice roll, and a Sylop paired with it copies 6.
     - **Markdown** makes a lone Sylop worth 0. Two Sylops are still Pure Sabacc.
     - **Cook the Books** reverses the order of the pairs (6s best, 1s worst). Pure Sabacc stays on top, and playing it a second time flips the order back.
     - **Prime Sabacc** rolls two dice on the server and the player picks one. A pair of that value becomes the best Sabacc, below only Pure Sabacc, and takes the Prime Sabacc label. If the timer runs out, the server picks the die that helps your hand most and then you stand.
-22. **Exhaustion** sends the target's hand to the discard piles and deals them a new one from the decks, which only they see. **Direct Transaction** swaps your hand with the target's.
+23. **Exhaustion** sends the target's hand to the discard piles and deals them a new one from the decks, which only they see. **Direct Transaction** swaps your hand with the target's.

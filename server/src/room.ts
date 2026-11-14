@@ -27,6 +27,7 @@ import {
   type Rng,
   type RoomSettings,
   type RoomStatus,
+  type RoomSummary,
   type RoomView,
 } from '../../shared/src/index';
 
@@ -81,6 +82,7 @@ export class Room {
     startingChips: DEFAULT_STARTING_CHIPS,
     turnSeconds: DEFAULT_TURN_SECONDS,
     shiftTokens: DEFAULT_SHIFT_TOKENS,
+    isPublic: false,
   };
   game: GameState | null = null;
   chat: ChatMessage[] = [];
@@ -88,6 +90,7 @@ export class Room {
   nextRoundAt: number | null = null;
   readyIds = new Set<string>();
   lastActivity = Date.now();
+  readonly createdAt = Date.now();
 
   private rng: Rng;
   private chatSeq = 0;
@@ -238,6 +241,13 @@ export class Room {
     if (patch.shiftTokens !== undefined) {
       if (!(SHIFT_TOKEN_OPTIONS as readonly number[]).includes(patch.shiftTokens)) throw new RoomError('Invalid shift token count');
       this.settings.shiftTokens = patch.shiftTokens;
+    }
+    if (patch.isPublic !== undefined) {
+      if (typeof patch.isPublic !== 'boolean') throw new RoomError('Invalid visibility');
+      if (patch.isPublic !== this.settings.isPublic) {
+        this.settings.isPublic = patch.isPublic;
+        this.system(patch.isPublic ? 'The table is now public.' : 'The table is now private.');
+      }
     }
     this.touch();
   }
@@ -502,6 +512,22 @@ export class Room {
       nextRoundAt: this.nextRoundAt,
       readyIds: [...this.readyIds],
       serverNow: Date.now(),
+    };
+  }
+
+  summary(): RoomSummary {
+    const bots = this.seats.filter((s) => s.isBot).length;
+    return {
+      code: this.code,
+      isPublic: this.settings.isPublic,
+      hostName: this.seat(this.hostId)?.name ?? '—',
+      status: this.status,
+      humans: this.seats.length - bots,
+      bots,
+      seatsTaken: this.seats.length,
+      maxSeats: MAX_PLAYERS,
+      settings: { ...this.settings },
+      joinable: this.status === 'lobby' && this.seats.length < MAX_PLAYERS,
     };
   }
 

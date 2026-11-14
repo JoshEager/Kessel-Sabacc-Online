@@ -92,3 +92,19 @@ export function setUrlCode(code: string | null): void {
   const url = code ? `/?r=${encodeURIComponent(code)}` : '/';
   if (window.location.pathname + window.location.search !== url) window.history.replaceState(null, '', url);
 }
+
+// ---------- home screen routing (/, /public, /private, /?r=CODE) ----------
+
+export type HomeScreen = 'menu' | 'public' | 'private';
+
+export function homeScreenFromUrl(): HomeScreen {
+  const p = window.location.pathname.replace(/\/+$/, '');
+  return p === '/public' ? 'public' : p === '/private' ? 'private' : 'menu';
+}
+
+/** Switches home screens with a real history entry, so the phone's back button returns to the menu. */
+export function goHomeScreen(screen: HomeScreen): void {
+  const url = screen === 'menu' ? '/' : `/${screen}`;
+  if (window.location.pathname + window.location.search !== url) window.history.pushState(null, '', url);
+  window.dispatchEvent(new PopStateEvent('popstate'));
+}

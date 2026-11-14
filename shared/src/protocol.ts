@@ -14,6 +14,8 @@ export interface RoomSettings {
   turnSeconds: number;
   /** Random shift tokens dealt to each player (0 = off). */
   shiftTokens: number;
+  /** Listed in the public games browser (anyone can join). Private rooms need the code or link. */
+  isPublic: boolean;
 }
 
 export interface SeatView {
@@ -35,6 +37,21 @@ export interface ChatMessage {
 
 export type RoomStatus = 'lobby' | 'playing' | 'finished';
 
+/** A room as shown in the public games list (or on an invite link before joining). */
+export interface RoomSummary {
+  code: string;
+  isPublic: boolean;
+  hostName: string;
+  status: RoomStatus;
+  humans: number;
+  bots: number;
+  seatsTaken: number;
+  maxSeats: number;
+  settings: RoomSettings;
+  /** In the lobby with an open seat. */
+  joinable: boolean;
+}
+
 export interface RoomView {
   code: string;
   youId: string | null;
@@ -55,9 +72,14 @@ export interface RoomView {
 export type Ack<T = object> = (res: ({ ok: true } & T) | { ok: false; error: string }) => void;
 
 export interface ClientToServerEvents {
-  'room:create': (p: { name: string }, ack: Ack<{ code: string; token: string }>) => void;
+  'room:create': (p: { name: string; isPublic?: boolean }, ack: Ack<{ code: string; token: string }>) => void;
   'room:join': (p: { code: string; name: string }, ack: Ack<{ code: string; token: string }>) => void;
   'room:resume': (p: { code: string; token: string }, ack: Ack<{ code: string }>) => void;
+  /** Info about one room by code (public or private), e.g. for an invite link. */
+  'room:peek': (p: { code: string }, ack: Ack<{ room: RoomSummary }>) => void;
+  /** Start receiving 'lobby:rooms' updates; replies with the current public room list. */
+  'lobby:watch': (ack: Ack<{ rooms: RoomSummary[] }>) => void;
+  'lobby:unwatch': (ack?: Ack) => void;
   'room:leave': (ack?: Ack) => void;
   'room:settings': (p: Partial<RoomSettings>, ack?: Ack) => void;
   'room:addBot': (p: { level: BotLevel }, ack?: Ack) => void;
@@ -73,4 +95,6 @@ export interface ClientToServerEvents {
 export interface ServerToClientEvents {
   'room:state': (view: RoomView) => void;
   'room:closed': (p: { reason: string }) => void;
+  /** The public room list changed (only sent to sockets that called 'lobby:watch'). */
+  'lobby:rooms': (rooms: RoomSummary[]) => void;
 }

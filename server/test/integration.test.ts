@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { io as connect, type Socket } from 'socket.io-client';
-import type { ClientToServerEvents, GameState, RoomView, ServerToClientEvents } from '../../shared/src/index';
+import type { ClientToServerEvents, GameState, RoomSummary, RoomView, ServerToClientEvents } from '../../shared/src/index';
 import { Room, type RoomTiming } from '../src/room';
 import { startServer, type KesselServer } from '../src/app';
 
@@ -184,5 +184,78 @@ describe('socket server', () => {
     expect(room.seat(ben.id)!.connected).toBe(true);
     const bad = await call<{ ok: boolean }>(client(), 'room:resume', { code: created.code, token: 'nope' });
     expect(bad.ok).toBe(false);
+  });
+
+  it('lists public rooms live, keeps private rooms out of the list, and peeks by code', async () => {
+    const watcher = client();
+    type ListRes = { ok: true; rooms: RoomSummary[] };
+    const nextList = (pred: (rooms: RoomSummary[]) => boolean) =>
+      new Promise<RoomSummary[]>((resolve) => {
+        const h = (rooms: RoomSummary[]) => {
+          if (pred(rooms)) {
+            watcher.off('lobby:rooms', h);
+            resolve(rooms);
+          }
+        };
+        watcher.on('lobby:rooms', h);
+      });
+
+    const initial = await call<ListRes>(watcher, 'lobby:watch');
+    expect(initial.ok).toBe(true);
+    const before = new Set(initial.rooms.map((r) => r.code));
+
+    // A private room never shows up; a public one does, with its host and seat count.
+    const hostPriv = client();
+    const priv = await call<{ ok: true; code: string }>(hostPriv, 'room:create', { name: 'Pia' });
+    const hostPub = client();
+    const pubListed = nextList((rooms) => rooms.some((r) => !before.has(r.code) && r.hostName === 'Cleo'));
+    const pub = await call<{ ok: true; code: string }>(hostPub, 'room:create', { name: 'Cleo', isPublic: true });
+    let rooms = await pubListed;
+    expect(rooms.some((r) => r.code === priv.code)).toBe(false);
+    const listed = rooms.find((r) => r.code === pub.code)!;
+    expect(listed).toMatchObject({ isPublic: true, hostName: 'Cleo', status: 'lobby', humans: 1, seatsTaken: 1, joinable: true });
+
+    // Joining from the list updates the seat count for watchers.
+    const joiner = client();
+    const twoSeats = nextList((rs) => rs.find((r) => r.code === pub.code)?.seatsTaken === 2);
+    expect((await call<{ ok: boolean }>(joiner, 'room:join', { code: pub.code, name: 'Dex' })).ok).toBe(true);
+    await twoSeats;
+
+    // The host can flip visibility in the lobby: private rooms drop out of the list.
+    const gone = nextList((rs) => !rs.some((r) => r.code === pub.code));
+    expect((await call<{ ok: boolean }>(hostPub, 'room:settings', { isPublic: false })).ok).toBe(true);
+    await gone;
+    const back = nextList((rs) => rs.some((r) => r.code === pub.code));
+    await call(hostPub, 'room:settings', { isPublic: true });
+    rooms = await back;
+
+    // Only the host may change visibility, and only to a boolean.
+    expect((await call<{ ok: boolean }>(joiner, 'room:settings', { isPublic: false })).ok).toBe(false);
+    expect((await call<{ ok: boolean }>(hostPub, 'room:settings', { isPublic: 'yes' })).ok).toBe(false);
+
+    // A started game stays listed but is no longer joinable.
+    const started = nextList((rs) => rs.find((r) => r.code === pub.code)?.status === 'playing');
+    await call(hostPub, 'room:start');
+    const inGame = (await started).find((r) => r.code === pub.code)!;
+    expect(inGame.joinable).toBe(false);
+
+    // Peek works for any code (that's how invite links show room info), private included.
+    const peekPriv = await call<{ ok: true; room: RoomSummary }>(client(), 'room:peek', { code: priv.code.toLowerCase() });
+    expect(peekPriv.ok).toBe(true);
+    expect(peekPriv.room).toMatchObject({ code: priv.code, isPublic: false, hostName: 'Pia', joinable: true });
+    const peekMissing = await call<{ ok: boolean; error: string }>(client(), 'room:peek', { code: 'ZZZZZ' });
+    expect(peekMissing).toEqual({ ok: false, error: 'No room with that code' });
+
+    // Unwatching stops updates; a room with nobody connected drops out of the list.
+    const dropped = nextList((rs) => !rs.some((r) => r.code === pub.code));
+    hostPub.disconnect();
+    joiner.disconnect();
+    await dropped;
+    await call(watcher, 'lobby:unwatch');
+    let got = false;
+    watcher.on('lobby:rooms', () => (got = true));
+    await call(client(), 'room:create', { name: 'Eve', isPublic: true });
+    await new Promise((r) => setTimeout(r, 800));
+    expect(got).toBe(false);
   });
 });

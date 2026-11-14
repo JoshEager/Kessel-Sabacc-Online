@@ -56,6 +56,9 @@ export function Lobby({ view, onLeave }: { view: RoomView; onLeave: () => void }
           <div className="room-code-block">
             <span className="muted small">Room code</span>
             <div className="room-code">{view.code}</div>
+            <span className={`badge visibility ${view.settings.isPublic ? 'public' : 'private'}`}>
+              {view.settings.isPublic ? 'Public · listed in Public games' : 'Private · code or link only'}
+            </span>
             <button className="btn small" onClick={copy}>
               {copied ? 'Link copied!' : 'Copy invite link'}
             </button>
@@ -101,6 +104,17 @@ export function Lobby({ view, onLeave }: { view: RoomView; onLeave: () => void }
 
           <h2 className="section-title">Table settings</h2>
           <div className="settings">
+            <label className="field">
+              <span>Visibility</span>
+              <select
+                value={view.settings.isPublic ? 'public' : 'private'}
+                disabled={!isHost}
+                onChange={(e) => run('room:settings', { isPublic: e.target.value === 'public' })}
+              >
+                <option value="private">Private (code or link)</option>
+                <option value="public">Public (listed for anyone)</option>
+              </select>
+            </label>
             <label className="field">
               <span>Starting chips</span>
               <select
