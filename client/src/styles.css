@@ -1908,3 +1908,35 @@ h3 {
     font-size: 0.66rem;
   }
 }
+
+/* ---------- PWA install ---------- */
+.install-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.install-btn::before {
+  content: '';
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1v9M4 6.5 8 10.5l4-4M2 13.5h12' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1v9M4 6.5 8 10.5l4-4M2 13.5h12' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.install-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* Installed app / notched phones (viewport-fit=cover): keep content clear of the notch.
+   env() is 0 everywhere else. Box-sizing is border-box, so 100dvh layouts don't overflow. */
+.game,
+.lobby {
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+.home {
+  padding-top: max(28px, env(safe-area-inset-top));
+}

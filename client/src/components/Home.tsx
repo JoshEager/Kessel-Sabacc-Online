@@ -3,6 +3,7 @@ import { MAX_NAME_LENGTH } from '../../../shared/src/protocol';
 import { codeFromUrl, loadName, request, saveName, saveSession } from '../net';
 import { CardFace } from './Card';
 import { RulesPanel } from './RulesPanel';
+import { useInstall } from '../pwa';
 
 export function Home({ notice, clearNotice }: { notice: string | null; clearNotice: () => void }) {
   const urlCode = codeFromUrl();
@@ -11,6 +12,7 @@ export function Home({ notice, clearNotice }: { notice: string | null; clearNoti
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const { mode: installMode, install } = useInstall();
 
   async function go(kind: 'create' | 'join', e?: FormEvent) {
     e?.preventDefault();
@@ -99,6 +101,16 @@ export function Home({ notice, clearNotice }: { notice: string | null; clearNoti
       <button className="btn ghost" onClick={() => setRulesOpen(true)}>
         How to play
       </button>
+      {installMode === 'prompt' && (
+        <button className="btn install-btn" onClick={() => void install()}>
+          Install app
+        </button>
+      )}
+      {installMode === 'ios' && (
+        <p className="install-hint">
+          Install on iPhone: tap <b>Share</b>, then <b>Add to Home Screen</b>.
+        </p>
+      )}
       <RulesPanel open={rulesOpen} onClose={() => setRulesOpen(false)} />
       <p className="footnote">A fan-made, unofficial game. All art is original.</p>
     </div>

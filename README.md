@@ -14,6 +14,7 @@ This is an unofficial fan project. All card art, symbols and UI are original CSS
 - Timed Impostor dice choices (the best value is picked automatically on timeout), a round summary, a game log, chat, rematch and back-to-lobby
 - Animated dealing, draws, discards, dice and reveal flips; optional synthesized sound effects (muted by default)
 - A collapsible rules panel and a responsive layout that works on a phone in portrait mode
+- Installable as an app (PWA) on iPhone, Android and desktop, with no app store involved
 
 ## Project layout
 
@@ -25,6 +26,8 @@ server/   Node + Express + Socket.IO; rooms kept in memory
   src/      app.ts (sockets/HTTP) · room.ts (room + timers + bots) · index.ts (entry)
   test/     Integration tests (full 4-bot game, socket flow)
 client/   React + Vite UI (renders server state only)
+  public/   PWA manifest, service worker (sw.js) and icons
+scripts/  generate-icons.mjs (redraws the PNG app icons: npm run icons)
 ```
 
 The engine never mutates its input. `applyAction(state, playerId, action, rng)` returns a new state or throws `IllegalMoveError`, and `toGameView(state, viewerId)` removes everything that seat may not see. Bots decide from that same filtered view.
@@ -61,36 +64,55 @@ npm run build && npm start   # production build, served from one process on $POR
 
 `npm run build` outputs `dist/public` (the client) and `dist/server.js` (the bundled server). One Node process serves both, plus a health check at `/healthz`.
 
-## Deployment
+## Deployment (Docker)
 
-It's a single stateful service. Rooms live in memory, so run **one instance**. WebSockets must be allowed (all three hosts below support them).
+The repo includes a `Dockerfile` and `docker-compose.yml`. On any machine with Docker:
 
-**Render** (Web Service)
-- Build command: `npm ci --include=dev && npm run build`
-- Start command: `npm start`
-- Health check path: `/healthz`. Render provides `PORT` automatically.
-
-**Railway**
-- Create a service from the repo. Railway detects Node.
-- Build: `npm ci --include=dev && npm run build` · Start: `npm start`
-
-**Fly.io**: use a minimal `Dockerfile` such as:
-
-```dockerfile
-FROM node:20-slim
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --include=dev
-COPY . .
-RUN npm run build && npm prune --omit=dev
-ENV PORT=8080
-EXPOSE 8080
-CMD ["npm", "start"]
+```bash
+docker compose up -d --build
 ```
 
-Then run `fly launch` (set the internal port to 8080) and `fly deploy`. Keep `min_machines_running = 1` and a single machine, since game state lives in memory.
+The game is then at `http://<host>:3001`. To use a different port, copy `.env.example` to `.env` and set `APP_PORT`. The container restarts automatically and has a health check on `/healthz`. To update after pulling new code, run the same command again.
 
-Restarting the server ends any games in progress.
+```bash
+docker compose logs -f   # follow the server log
+```
+
+```bash
+docker compose down      # stop it
+```
+
+It's a single stateful service: rooms live in memory, so run **one instance**, and restarting ends any games in progress.
+
+### HTTPS (needed to install the app)
+
+Phones only offer to install a PWA from an **HTTPS** site (plain `http://localhost` also works, for testing on the same machine). Pick one:
+
+- **Tailscale (private, for your tailnet):** with HTTPS certificates enabled for the tailnet, run the command below on the Docker host. The game is then at `https://<machine>.<tailnet>.ts.net` for every device on your tailnet.
+
+  ```bash
+  tailscale serve --bg 3001
+  ```
+
+- **Public domain with the bundled Caddy proxy:** point a DNS record at the server, open ports 80 and 443, set `DOMAIN=sabacc.example.com` in `.env`, and start it with the command below. Caddy gets and renews a Let's Encrypt certificate automatically.
+
+  ```bash
+  docker compose --profile https up -d --build
+  ```
+
+- **Anything else you already run** (Cloudflare Tunnel, nginx, Traefik) works too. Proxy to port 3001 and allow WebSockets.
+
+### Installing on a phone
+
+- **Android (Chrome, Edge, Samsung Internet):** open the site and tap **Install app** on the home screen, or use the browser menu's *Install app* / *Add to Home screen*.
+- **iPhone / iPad (Safari):** tap **Share**, then **Add to Home Screen**. The home screen shows this hint in Safari.
+- **Desktop Chrome/Edge:** use the install icon in the address bar.
+
+The installed app opens fullscreen with its own icon. It still needs the server to play, and updates arrive automatically whenever you redeploy.
+
+### Without Docker
+
+Any Node 20+ host works. Build with `npm ci --include=dev && npm run build`, start with `npm start`, and use `/healthz` as the health check. `PORT` is read from the environment, so this works on Render, Railway, Fly.io and similar hosts (the `Dockerfile` also works on Fly.io as-is). Keep a single instance.
 
 ## Rules summary
 

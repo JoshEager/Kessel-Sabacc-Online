@@ -52,8 +52,25 @@ export async function startServer(opts: ServerOptions = {}): Promise<KesselServe
 
   if (opts.staticDir && existsSync(opts.staticDir)) {
     const dir = opts.staticDir;
-    app.use(express.static(dir, { index: false, maxAge: '1h' }));
+    app.use(
+      express.static(dir, {
+        index: false,
+        setHeaders(res, file) {
+          const rel = path.relative(dir, file).split(path.sep).join('/');
+          if (rel.startsWith('assets/')) {
+            // Vite content-hashes these file names, so they can be cached forever.
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          } else if (rel === 'sw.js' || rel === 'manifest.webmanifest' || rel === 'index.html') {
+            // Always revalidate, so a new deploy (and a new service worker) is picked up right away.
+            res.setHeader('Cache-Control', 'no-cache');
+          } else {
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+          }
+        },
+      }),
+    );
     app.get(/^(?!\/socket\.io).*/, (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(path.join(dir, 'index.html'));
     });
   }

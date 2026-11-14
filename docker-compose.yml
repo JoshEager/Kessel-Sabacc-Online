@@ -1,0 +1,44 @@
+# Production: docker compose up -d --build
+#
+# Serves the game on http://<host>:3001 (change with APP_PORT in .env).
+# Installing the PWA needs HTTPS. Either put this behind something that already gives you
+# HTTPS (e.g. `tailscale serve`, Cloudflare Tunnel, an existing reverse proxy), or set DOMAIN
+# in .env and start the bundled Caddy proxy, which gets a Let's Encrypt certificate itself:
+#   docker compose --profile https up -d --build
+#
+# Game state lives in memory: run a single instance. Restarting ends games in progress.
+
+services:
+  app:
+    build: .
+    image: kessel-sabacc:latest
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3001}:3001"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3001
+    init: true
+    stop_grace_period: 10s
+
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
