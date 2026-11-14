@@ -42,7 +42,7 @@ npm run dev
 
 This runs the API/socket server on `http://localhost:3001` and Vite on `http://localhost:5173` (which proxies `/socket.io`). Open http://localhost:5173.
 
-Both servers listen on `0.0.0.0`, so other devices on your LAN or tailnet can join at `http://<your-ip>:5173` (Vite prints the Network URLs). Tailscale MagicDNS names (`*.ts.net`) are allowed too. Set `HOST=127.0.0.1` to keep the API server local-only. On Windows, allow Node through the firewall when prompted.
+Both servers listen on `0.0.0.0`, so other devices on your LAN or tailnet can join at `http://<your-ip>:5173` (Vite prints the Network URLs). Any hostname works, including Tailscale MagicDNS short names like `http://server:5173`. Set `HOST=127.0.0.1` to keep the API server local-only. On Windows, allow Node through the firewall when prompted.
 
 Other scripts:
 
