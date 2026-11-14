@@ -21,6 +21,8 @@ const ROOM_EMPTY_MS = 10 * 60 * 1000;
 
 export interface ServerOptions {
   port?: number;
+  /** Interface to bind; omit to use Node's default (all interfaces). */
+  host?: string;
   staticDir?: string | null;
   timing?: Partial<RoomTiming>;
   log?: boolean;
@@ -268,7 +270,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<KesselServe
   sweeper.unref();
 
   const port = await new Promise<number>((resolve) => {
-    http.listen(opts.port ?? 0, () => {
+    http.listen(opts.port ?? 0, opts.host ?? '::', () => {
       const addr = http.address();
       resolve(typeof addr === 'object' && addr ? addr.port : (opts.port ?? 0));
     });

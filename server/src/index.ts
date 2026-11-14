@@ -9,8 +9,9 @@ const candidates = [path.join(here, 'public'), path.join(here, '../../dist/publi
 const staticDir = candidates.find((d) => existsSync(path.join(d, 'index.html'))) ?? null;
 
 const port = Number(process.env.PORT ?? 3001);
-const server = await startServer({ port, staticDir, log: true });
-console.log(`Kessel Sabacc server listening on http://localhost:${server.port}`);
+const host = process.env.HOST ?? '0.0.0.0';
+const server = await startServer({ port, host, staticDir, log: true });
+console.log(`Kessel Sabacc server listening on http://${host}:${server.port}`);
 if (!staticDir) console.log('No client build found — run the Vite dev server (npm run dev) or npm run build.');
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {

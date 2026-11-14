@@ -12,7 +12,11 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    // Listen on all interfaces so other devices (LAN / Tailscale) can join during dev.
+    host: '0.0.0.0',
     port: 5173,
+    // Vite rejects unknown Host headers; allow Tailscale MagicDNS names (raw IPs are always allowed).
+    allowedHosts: ['.ts.net'],
     proxy: {
       '/socket.io': { target: 'http://localhost:3001', ws: true },
     },
